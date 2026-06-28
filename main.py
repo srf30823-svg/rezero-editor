@@ -3,6 +3,9 @@
 import click
 import json
 import yaml
+import shutil
+import sys
+import subprocess
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
@@ -18,6 +21,24 @@ def _load_config() -> dict:
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     return {}
+
+
+def _handle_error(step: str, e: Exception) -> None:
+    """Hata mesajını gösterir ve programdan çıkar."""
+    msg = str(e).strip()
+    console.print(f"[red]✗ {step} sırasında hata: {msg}[/red]")
+    raise SystemExit(1)
+
+
+def _check_dependency(name: str, cmd: list, install_hint: str) -> bool:
+    """Bir bağımlılığın kurulu olup olmadığını kontrol eder."""
+    try:
+        subprocess.run(cmd, capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        console.print(f"  [red]✗ {name} bulunamadı[/red]")
+        console.print(f"    Kurulum: {install_hint}")
+        return False
 
 
 @click.group()
@@ -39,23 +60,27 @@ def analyze(input, output):
     console.print(Panel("Video analizi başlatılıyor...", title="RE:ZERO Editor"))
     console.print(f"[yellow]Video: {input}[/yellow]")
 
-    from video.extractor import extract_frames
-    from video.analyzer import detect_scenes
-    from video.scorer import score_scenes
+    try:
+        from video.extractor import extract_frames
+        from video.analyzer import detect_scenes
+        from video.scorer import score_scenes
 
-    frames = extract_frames(str(video_path))
-    scenes = detect_scenes(frames)
-    scored_scenes = score_scenes(scenes)
+        frames = extract_frames(str(video_path))
+        scenes = detect_scenes(frames)
+        scored_scenes = score_scenes(scenes)
 
-    result = {
-        "input": str(video_path),
-        "scenes": scored_scenes
-    }
+        result = {
+            "input": str(video_path),
+            "scenes": scored_scenes
+        }
 
-    with open(output, "w", encoding="utf-8") as f:
-        json.dump(result, f, indent=2, ensure_ascii=False)
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(result, f, indent=2, ensure_ascii=False)
 
-    console.print(f"[green]✓ Analiz tamamlandı: {output}[/green]")
+        console.print(f"[green]✓ Analiz tamamlandı: {output}[/green]")
+
+    except Exception as e:
+        _handle_error("Video analizi", e)
 
 
 @cli.command()
@@ -84,74 +109,78 @@ def edit(input, music, duration, output, language, no_subs):
     console.print(f"[yellow]Süre: {target_duration}s[/yellow]")
     console.print(f"[yellow]Altyazı: {'Açık' if not no_subs else 'Kapalı'} ({language})[/yellow]")
 
-    from video.extractor import extract_frames
-    from video.analyzer import detect_scenes
-    from video.scorer import score_scenes
-    from video.selector import select_clips
-    from audio.beat_detector import detect_beats
-    from audio.sync_engine import sync_to_beats
-    from editor.effects import apply_effects
-    from editor.timeline import create_timeline
-    from editor.renderer import render_shorts
-    from editor.captions import generate_captions, generate_srt, generate_ass
+    try:
+        from video.extractor import extract_frames
+        from video.analyzer import detect_scenes
+        from video.scorer import score_scenes
+        from video.selector import select_clips
+        from audio.beat_detector import detect_beats
+        from audio.sync_engine import sync_to_beats
+        from editor.effects import apply_effects
+        from editor.timeline import create_timeline
+        from editor.renderer import render_shorts
+        from editor.captions import generate_captions, generate_srt, generate_ass
 
-    console.print("[blue]→ Video analiz ediliyor...[/blue]")
-    frames = extract_frames(str(video_path))
-    scenes = detect_scenes(frames)
-    scored = score_scenes(scenes)
-    clips = select_clips(scored, target_duration=target_duration)
-    console.print(f"[green]✓ {len(clips)} klip seçildi[/green]")
+        console.print("[blue]→ Video analiz ediliyor...[/blue]")
+        frames = extract_frames(str(video_path))
+        scenes = detect_scenes(frames)
+        scored = score_scenes(scenes)
+        clips = select_clips(scored, target_duration=target_duration)
+        console.print(f"[green]✓ {len(clips)} klip seçildi[/green]")
 
-    console.print("[blue]→ Müzik beat'leri tespit ediliyor...[/blue]")
-    beat_data = detect_beats(str(music_path))
-    console.print(f"[green]✓ BPM: {beat_data['bpm']:.1f}[/green]")
+        console.print("[blue]→ Müzik beat'leri tespit ediliyor...[/blue]")
+        beat_data = detect_beats(str(music_path))
+        console.print(f"[green]✓ BPM: {beat_data['bpm']:.1f}[/green]")
 
-    console.print("[blue]→ Klipler beat'lere senkronize ediliyor...[/blue]")
-    synced_clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
+        console.print("[blue]→ Klipler beat'lere senkronize ediliyor...[/blue]")
+        synced_clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
 
-    console.print("[blue]→ Efektler uygulanıyor...[/blue]")
-    for clip in synced_clips:
-        apply_effects(clip)
+        console.print("[blue]→ Efektler uygulanıyor...[/blue]")
+        for clip in synced_clips:
+            apply_effects(clip)
 
-    console.print("[blue]→ Altyazılar oluşturuluyor...[/blue]")
-    captioned_clips = generate_captions(synced_clips, language=language)
+        console.print("[blue]→ Altyazılar oluşturuluyor...[/blue]")
+        captioned_clips = generate_captions(synced_clips, language=language)
 
-    console.print("[blue]→ Timeline oluşturuluyor...[/blue]")
-    timeline = create_timeline(captioned_clips)
-    timeline_data = timeline.to_json()
+        console.print("[blue]→ Timeline oluşturuluyor...[/blue]")
+        timeline = create_timeline(captioned_clips)
+        timeline_data = timeline.to_json()
 
-    for clip_data in timeline_data["clips"]:
-        clip_data["source"] = str(video_path)
+        for clip_data in timeline_data["clips"]:
+            clip_data["source"] = str(video_path)
 
-    Path("output").mkdir(exist_ok=True)
-    output_stem = Path(output).stem
+        Path("output").mkdir(exist_ok=True)
+        output_stem = Path(output).stem
 
-    timeline_path = f"output/{output_stem}_timeline.json"
-    with open(timeline_path, "w", encoding="utf-8") as f:
-        json.dump(timeline_data, f, indent=2, ensure_ascii=False)
+        timeline_path = f"output/{output_stem}_timeline.json"
+        with open(timeline_path, "w", encoding="utf-8") as f:
+            json.dump(timeline_data, f, indent=2, ensure_ascii=False)
 
-    srt_path = None
-    if not no_subs:
-        srt_content = generate_srt(captioned_clips)
-        srt_path = f"output/{output_stem}.srt"
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+        srt_path = None
+        if not no_subs:
+            srt_content = generate_srt(captioned_clips)
+            srt_path = f"output/{output_stem}.srt"
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(srt_content)
 
-        ass_content = generate_ass(captioned_clips)
-        ass_path = f"output/{output_stem}.ass"
-        with open(ass_path, "w", encoding="utf-8") as f:
-            f.write(ass_content)
+            ass_content = generate_ass(captioned_clips)
+            ass_path = f"output/{output_stem}.ass"
+            with open(ass_path, "w", encoding="utf-8") as f:
+                f.write(ass_content)
 
-        console.print(f"[green]✓ Altyazılar oluşturuldu: {srt_path}, {ass_path}[/green]")
+            console.print(f"[green]✓ Altyazılar oluşturuldu: {srt_path}, {ass_path}[/green]")
 
-    console.print("[blue]→ Video render ediliyor...[/blue]")
-    result = render_shorts(
-        timeline_data, output,
-        music_path=str(music_path),
-        subtitle_path=srt_path if not no_subs else None
-    )
+        console.print("[blue]→ Video render ediliyor...[/blue]")
+        result = render_shorts(
+            timeline_data, output,
+            music_path=str(music_path),
+            subtitle_path=srt_path if not no_subs else None
+        )
 
-    console.print(f"[green]✓ Shorts videosu oluşturuldu: {result}[/green]")
+        console.print(f"[green]✓ Shorts videosu oluşturuldu: {result}[/green]")
+
+    except Exception as e:
+        _handle_error("Shorts oluşturma", e)
 
 
 @cli.command()
@@ -178,14 +207,68 @@ def export(timeline, output, music, subtitle):
     if subtitle:
         console.print(f"[yellow]Altyazı: {subtitle}[/yellow]")
 
-    from editor.renderer import render_shorts
+    try:
+        from editor.renderer import render_shorts
 
-    result = render_shorts(
-        str(timeline_path), output,
-        music_path=music,
-        subtitle_path=subtitle
-    )
-    console.print(f"[green]✓ Video oluşturuldu: {result}[/green]")
+        result = render_shorts(
+            str(timeline_path), output,
+            music_path=music,
+            subtitle_path=subtitle
+        )
+        console.print(f"[green]✓ Video oluşturuldu: {result}[/green]")
+
+    except Exception as e:
+        _handle_error("Video render", e)
+
+
+@cli.command()
+def validate():
+    """Sistem bağımlılıklarını kontrol eder."""
+    console.print(Panel("Sistem kontrolü yapılıyor...", title="RE:ZERO Editor"))
+
+    all_ok = True
+
+    console.print("\n[bold]Harici Araçlar:[/bold]")
+    if not _check_dependency("FFmpeg", ["ffmpeg", "-version"],
+                             "apt install ffmpeg  veya  brew install ffmpeg"):
+        all_ok = False
+    if not _check_dependency("FFprobe", ["ffprobe", "-version"],
+                             "FFmpeg ile birlikte gelir"):
+        all_ok = False
+
+    console.print("\n[bold]Python Paketleri:[/bold]")
+    pkgs = [
+        ("opencv-python-headless", "pip install opencv-python-headless"),
+        ("librosa", "pip install librosa"),
+        ("click", "pip install click"),
+        ("pyyaml", "pip install pyyaml"),
+        ("rich", "pip install rich"),
+        ("numpy", "pip install numpy"),
+    ]
+    for name, hint in pkgs:
+        try:
+            __import__(name.replace("-", "_").replace(".", "_"))
+            console.print(f"  [green]✓ {name}[/green]")
+        except ImportError:
+            console.print(f"  [red]✗ {name} bulunamadı[/red]")
+            console.print(f"    Kurulum: {hint}")
+            all_ok = False
+
+    console.print("\n[bold]Proje Yapısı:[/bold]")
+    required_dirs = ["video", "audio", "editor", "knowledge"]
+    for d in required_dirs:
+        if Path(d).is_dir():
+            console.print(f"  [green]✓ {d}/[/green]")
+        else:
+            console.print(f"  [red]✗ {d}/ eksik[/red]")
+            all_ok = False
+
+    if all_ok:
+        console.print(f"\n[green]✓ Tüm kontroller geçildi. Sistem hazır.[/green]")
+    else:
+        console.print(f"\n[yellow]⚠ Bazı bileşenler eksik. Yukarıdaki uyarıları kontrol edin.[/yellow]")
+
+    return all_ok
 
 
 if __name__ == "__main__":

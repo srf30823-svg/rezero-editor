@@ -49,10 +49,11 @@ def create_timeline(clips: List[Dict], output_config: Dict = None) -> Timeline:
         "fps": 30
     }
     
+    resolution = config.get("resolution", [1080, 1920])
     timeline = Timeline(
         fps=config.get("fps", 30),
-        width=config[0] if isinstance(config["resolution"], list) else config["resolution"][0],
-        height=config[1] if isinstance(config["resolution"], list) else config["resolution"][1]
+        width=resolution[0],
+        height=resolution[1]
     )
     
     for clip in clips:

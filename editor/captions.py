@@ -49,7 +49,8 @@ def generate_captions(clips: List[Dict], language: str = "tr") -> List[Dict]:
             captions.append({"text": name_text, "start": 0.0, "end": min(1.5, duration)})
 
         texts = CAPTION_TEXTS.get(scene_type, CAPTION_TEXTS["dialogue"])
-        caption_text = texts.get(language, texts["en"])[int(intensity) % len(texts)]
+        lang_texts = texts.get(language, texts["en"])
+        caption_text = lang_texts[int(intensity) % len(lang_texts)]
 
         captions.append({
             "text": caption_text,
