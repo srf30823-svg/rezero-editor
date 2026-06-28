@@ -1,8 +1,15 @@
+paths:
+  input_base: /data/data/com.termux/files/home/storage/shared/Download/rezero/input
+  music_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/input/music
+  output_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/output/shorts
+  timeline_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/output/timelines
+
 output:
   resolution: [1080, 1920]
   fps: 30
   duration_seconds: 59
   format: mp4
+  directory: output
 
 editing:
   beat_sync: true
@@ -15,3 +22,9 @@ audio:
   music_volume: 0.7
   original_volume: 0.3
   fade_duration: 0.5
+  sample_rate: 22050
+
+temp:
+  frames_dir: /tmp/rezero_frames
+  audio_dir: /tmp/rezero_audio
+  render_dir: /tmp/rezero_render

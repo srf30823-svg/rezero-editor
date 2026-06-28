@@ -32,5 +32,6 @@ rezero-editor/
 
 ## Komutlar
 - `python main.py analyze --input video.mp4` - Video analizi
-- `python main.py edit --input video.mp4 --music track.mp3 --duration 59` - Shorts edit
+- `python main.py edit --input video.mp4 --duration 59` - Shorts edit (müzik otomatik seçilir)
+- `python main.py edit --input video.mp4 --music track.mp3 --duration 59` - Özel müzik ile Shorts edit
 - `python main.py export --timeline timeline.json --output shorts.mp4` - Final render

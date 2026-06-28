@@ -1,70 +1,80 @@
-"""Re:Zero lore sorgu motoru - karakter ve arc bilgilerini sağlar."""
+"""Re:Zero lore query engine - provides character and arc information."""
 import json
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List
 
 CHARACTERS_PATH = Path(__file__).parent / "characters.json"
 ARCS_PATH = Path(__file__).parent / "arcs.json"
 MOMENTS_PATH = Path(__file__).parent / "moments.json"
 
+_cache: Dict[str, dict] = {}
+
 
 def _load_json(path: Path) -> dict:
-    """JSON dosyasını yükler."""
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    """Load a JSON file once and cache it."""
+    cache_key = str(path.resolve())
+    if cache_key not in _cache:
+        if not path.exists():
+            raise FileNotFoundError(f"Lore dosyası bulunamadı: {path}")
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                _cache[cache_key] = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Lore dosyası okunamadı: {path} - {e}")
+    return _cache[cache_key]
 
 
 def get_character_score(name: str) -> dict:
     """
-    Belirli bir karakterin puanlarını döndürür.
-    
+    Return scores for a specific character.
+
     Args:
-        name: Aranan karakterin adı (tam ad veya takma ad)
-    
+        name: Character name to search (full name or alias).
+
     Returns:
-        Karakter puanları ve bilgileri içeren dict
+        Dict with character scores and info.
     """
     data = _load_json(CHARACTERS_PATH)
     name_lower = name.lower()
-    
+
     for char_key, char_data in data["characters"].items():
         if char_key.lower() == name_lower:
             return char_data
         if any(alias.lower() == name_lower for alias in char_data.get("aliases", [])):
             return char_data
-    
+
     return {"error": f"Karakter '{name}' bulunamadı"}
 
 
 def get_arc_info(arc_number: int) -> dict:
     """
-    Belirli bir arcanın bilgilerini döndürür.
-    
+    Return information for a specific arc.
+
     Args:
-        arc_number: Arc numarası (1-6)
-    
+        arc_number: Arc number (1-6).
+
     Returns:
-        Arc bilgileri içeren dict
+        Dict with arc information.
     """
     data = _load_json(ARCS_PATH)
     arc_key = str(arc_number)
-    
+
     if arc_key not in data["arcs"]:
         return {"error": f"Arc {arc_number} bulunamadı"}
-    
+
     return data["arcs"][arc_key]
 
 
 def classify_scene(intensity: float, duration: float) -> str:
     """
-    Sahnenin türünü belirler.
-    
+    Determine the scene type based on intensity and duration.
+
     Args:
-        intensity: Sahnenin yoğunluğu (0-10 arası)
-        duration: Sahnenin süresi (saniye)
-    
+        intensity: Scene intensity (0-10 scale).
+        duration: Scene duration in seconds.
+
     Returns:
-        Sahne türü: action, emotional, dialogue, or atmospheric
+        Scene type: action, emotional, dialogue, or atmospheric.
     """
     if intensity >= 7:
         return "action"
@@ -76,51 +86,54 @@ def classify_scene(intensity: float, duration: float) -> str:
         return "atmospheric"
 
 
-def get_top_characters(n: int = 5) -> list:
+def get_top_characters(n: int = 5) -> List[dict]:
     """
-    Fan favori skorlarına göre en iyi karakterleri döndürür.
-    
+    Return the top characters by fan favorite score.
+
     Args:
-        n: Döndürülecek karakter sayısı
-    
+        n: Number of characters to return.
+
     Returns:
-        En iyi karakterlerin listesi
+        List of top characters.
     """
     data = _load_json(CHARACTERS_PATH)
-    
+
     sorted_chars = sorted(
         data["characters"].items(),
         key=lambda x: x[1].get("fan_favorite_score", 0),
         reverse=True
     )
-    
+
     return [{"key": k, **v} for k, v in sorted_chars[:n]]
 
 
-def get_moments_by_arc(arc_number: int) -> list:
+def get_moments_by_arc(arc_number: int) -> List[dict]:
     """
-    Belirli bir arca göre sahneleri getirir.
-    
+    Return moments for a specific arc.
+
     Args:
-        arc_number: Arc numarası
-    
+        arc_number: Arc number.
+
     Returns:
-        O araca ait sahnelerin listesi
+        List of moments for that arc.
     """
     data = _load_json(MOMENTS_PATH)
     return [m for m in data.get("moments", []) if m.get("arc") == arc_number]
 
 
-def get_moments_by_character(character_name: str) -> list:
+def get_moments_by_character(character_name: str) -> List[dict]:
     """
-    Belirli bir karaktere göre sahneleri getirir.
-    
+    Return moments featuring a specific character.
+
     Args:
-        character_name: Karakter adı
-    
+        character_name: Character name.
+
     Returns:
-        O karaktere ait sahnelerin listesi
+        List of moments featuring that character.
     """
     data = _load_json(MOMENTS_PATH)
-    return [m for m in data.get("moments", []) 
-            if character_name in m.get("characters", [])]
+    name_lower = character_name.lower()
+    return [
+        m for m in data.get("moments", [])
+        if any(name_lower == c.lower() for c in m.get("characters", []))
+    ]

@@ -1,119 +1,180 @@
-"""FFmpeg tabanlı video çerçeve çıkarımı."""
+"""FFmpeg-based video frame extraction and clip utilities."""
 import json
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import List, Dict, Optional, Tuple
 
 
-def extract_frames(video_path: str, interval: float = 1.0, output_dir: str = "/tmp/rezero_frames") -> list:
+def _run_ffmpeg(cmd: List[str]) -> str:
+    """Run FFmpeg and return stdout, raising on errors."""
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"FFmpeg hatası: {e.stderr}") from e
+    except FileNotFoundError as e:
+        raise RuntimeError("FFmpeg yüklü değil veya PATH'de bulunamadı") from e
+    return result.stdout
+
+
+def extract_frames(video_path: str, interval: float = 1.0,
+                   output_dir: str = "/tmp/rezero_frames") -> List[str]:
     """
-    Videodan çerçeveler çıkarır.
-    
+    Extract frames from a video file.
+
     Args:
-        video_path: Video dosyası yolu
-        interval: Çerçeve çıkarım aralığı (saniye)
-        output_dir: Çıkış klasörü
-    
+        video_path: Path to the video file.
+        interval: Frame extraction interval in seconds.
+        output_dir: Output directory for extracted frames.
+
     Returns:
-        Çıkarılan çerçeve dosyalarının yolları
+        List of extracted frame file paths.
     """
+    if not Path(video_path).exists():
+        raise FileNotFoundError(f"Video dosyası bulunamadı: {video_path}")
+
     output_path = Path(output_dir)
+    if output_path.exists():
+        shutil.rmtree(str(output_path), ignore_errors=True)
     output_path.mkdir(exist_ok=True, parents=True)
-    
+
     pattern = str(output_path / "frame_%06d.jpg")
     cmd = [
-        "ffmpeg", "-i", video_path,
+        "ffmpeg",
+        "-ss", "0",
+        "-i", video_path,
         "-vf", f"fps=1/{interval}",
         "-q:v", "2",
-        pattern
+        "-y",
+        pattern,
     ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"FFmpeg hatası: {result.stderr}")
-    
-    return sorted(output_path.glob("frame_*.jpg"))
+
+    _run_ffmpeg(cmd)
+
+    return [str(p) for p in sorted(output_path.glob("frame_*.jpg"))]
 
 
 def extract_audio(video_path: str, output_path: str = "/tmp/audio.wav") -> str:
     """
-    Videodan ses çıkarır.
-    
+    Extract audio from a video file.
+
     Args:
-        video_path: Video dosyası yolu
-        output_path: Çıkış ses dosyası yolu
-    
+        video_path: Path to the video file.
+        output_path: Output audio file path.
+
     Returns:
-        Çıkarılan ses dosyası yolu
+        Path to the extracted audio file.
     """
+    if not Path(video_path).exists():
+        raise FileNotFoundError(f"Video dosyası bulunamadı: {video_path}")
+
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(exist_ok=True, parents=True)
+
     cmd = [
-        "ffmpeg", "-i", video_path,
+        "ffmpeg",
+        "-ss", "0",
+        "-i", video_path,
         "-vn", "-acodec", "pcm_s16le", "-ar", "44100", "-ac", "2",
-        output_path, "-y"
+        "-y", output_path,
     ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Ses çıkarım hatası: {result.stderr}")
-    
+
+    _run_ffmpeg(cmd)
+
     return output_path
 
 
-def get_video_info(video_path: str) -> dict:
+def get_video_info(video_path: str) -> Dict:
     """
-    Video meta verilerini alır.
-    
+    Retrieve video metadata.
+
     Args:
-        video_path: Video dosyası yolu
-    
+        video_path: Path to the video file.
+
     Returns:
-        Video süresi, fps, çözünürlük gibi bilgiler içeren dict
+        Dict with duration, fps, width, height, and total frames.
     """
+    if not Path(video_path).exists():
+        raise FileNotFoundError(f"Video dosyası bulunamadı: {video_path}")
+
     cmd = [
         "ffprobe", "-v", "quiet", "-print_format", "json",
-        "-show_format", "-show_streams", video_path
+        "-show_format", "-show_streams", video_path,
     ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Video bilgi hatası: {result.stderr}")
-    
-    data = json.loads(result.stdout)
-    video_stream = next((s for s in data["streams"] if s["codec_type"] == "video"), {})
-    
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"Video bilgi hatası: {e.stderr}") from e
+    except FileNotFoundError as e:
+        raise RuntimeError("FFprobe yüklü değil veya PATH'de bulunamadı") from e
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"FFprobe çıktısı okunamadı: {e}") from e
+
+    video_stream = next(
+        (s for s in data.get("streams", []) if s.get("codec_type") == "video"),
+        {}
+    )
+    if not video_stream:
+        raise RuntimeError("Videoda görüntü akışı bulunamadı (corrupted veya ses dosyası?)")
+
+    r_frame_rate = video_stream.get("r_frame_rate", "30/1")
+    try:
+        num, den = map(int, r_frame_rate.split("/"))
+        fps = num / den if den != 0 else 30.0
+    except (ValueError, ZeroDivisionError):
+        fps = 30.0
+
     return {
-        "duration": float(data["format"].get("duration", 0)),
-        "fps": eval(video_stream.get("r_frame_rate", "30/1")),
+        "duration": float(data.get("format", {}).get("duration", 0)),
+        "fps": fps,
         "width": video_stream.get("width", 1920),
         "height": video_stream.get("height", 1080),
-        "total_frames": int(video_stream.get("nb_frames", 0))
+        "total_frames": int(video_stream.get("nb_frames", 0)),
     }
 
 
-def extract_clip(video_path: str, start_time: float, end_time: float, 
-                output_path: str) -> str:
+def extract_clip(video_path: str, start_time: float, end_time: float,
+                 output_path: str) -> str:
     """
-    Videodan bir klip kesip çıkarır.
-    
+    Extract a clip from a video.
+
     Args:
-        video_path: Video dosyası yolu
-        start_time: Başlangıç zamanı (saniye)
-        end_time: Bitiş zamanı (saniye)
-        output_path: Çıkış dosyası yolu
-    
+        video_path: Path to the video file.
+        start_time: Start time in seconds.
+        end_time: End time in seconds.
+        output_path: Output clip file path.
+
     Returns:
-        Çıkarılan klip yolu
+        Path to the extracted clip.
     """
+    if not Path(video_path).exists():
+        raise FileNotFoundError(f"Video dosyası bulunamadı: {video_path}")
+
+    if start_time < 0 or end_time <= start_time:
+        raise ValueError(f"Geçersiz klip zaman aralığı: {start_time}-{end_time}")
+
     duration = end_time - start_time
+    output_dir = Path(output_path).parent
+    output_dir.mkdir(exist_ok=True, parents=True)
+
     cmd = [
-        "ffmpeg", "-i", video_path,
-        "-ss", str(start_time), "-t", str(duration),
+        "ffmpeg",
+        "-ss", str(start_time),
+        "-i", video_path,
+        "-t", str(duration),
         "-c:v", "libx264", "-c:a", "aac",
-        output_path, "-y"
+        "-y", output_path,
     ]
-    
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"Klip çıkarım hatası: {result.stderr}")
-    
+
+    _run_ffmpeg(cmd)
+
     return output_path
