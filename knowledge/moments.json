@@ -1,0 +1,84 @@
+{
+  "moments": [
+    {
+      "rank": 1,
+      "description": "Rem confesses to Subaru",
+      "arc": 2,
+      "content_type": "emotional+character",
+      "characters": ["Rem", "Subaru"],
+      "typical_duration": 10
+    },
+    {
+      "rank": 2,
+      "description": "Rem's death scene",
+      "arc": 3,
+      "content_type": "tragic",
+      "characters": ["Rem", "Subaru", "Elsa"],
+      "typical_duration": 8
+    },
+    {
+      "rank": 3,
+      "description": "Subaru's rage against Roswaal",
+      "arc": 3,
+      "content_type": "emotional+confrontation",
+      "characters": ["Subaru", "Roswaal"],
+      "typical_duration": 6
+    },
+    {
+      "rank": 4,
+      "description": "Emilia's 'I love you' to Subaru",
+      "arc": 3,
+      "content_type": "romantic",
+      "characters": ["Emilia", "Subaru"],
+      "typical_duration": 5
+    },
+    {
+      "rank": 5,
+      "description": "White Whale battle climax",
+      "arc": 3,
+      "content_type": "action",
+      "characters": ["Subaru", "Reinhard", "Emilia"],
+      "typical_duration": 15
+    },
+    {
+      "rank": 6,
+      "description": "Beatrice's 'I'm happy' scene",
+      "arc": 4,
+      "content_type": "emotional",
+      "characters": ["Beatrice", "Subaru"],
+      "typical_duration": 8
+    },
+    {
+      "rank": 7,
+      "description": "Echidna's reveal",
+      "arc": 4,
+      "content_type": "mystery",
+      "characters": ["Echidna", "Subaru"],
+      "typical_duration": 12
+    },
+    {
+      "rank": 8,
+      "description": "Garfiel's backstory",
+      "arc": 5,
+      "content_type": "emotional+tragic",
+      "characters": ["Garfiel", "Frederica"],
+      "typical_duration": 10
+    },
+    {
+      "rank": 9,
+      "description": "Satella's manifestation",
+      "arc": 2,
+      "content_type": "supernatural",
+      "characters": ["Satella", "Subaru"],
+      "typical_duration": 6
+    },
+    {
+      "rank": 10,
+      "description": "Puck's true form reveal",
+      "arc": 1,
+      "content_type": "action+magic",
+      "characters": ["Puck", "Subaru", "Reinhard"],
+      "typical_duration": 5
+    }
+  ]
+}

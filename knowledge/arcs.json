@@ -1,0 +1,58 @@
+{
+  "arcs": {
+    "1": {
+      "name": "Lugnica Arrival",
+      "description": "Subaru'nun Lugnica'ya ilk gelişi ve Emilia çiftliğine katılması",
+      "episode_range": [1, 5],
+      "tone": "wonder",
+      "intensity": 6,
+      "key_moments": ["Subaru arrives in Lugnica", "First meeting with Emilia", "Mansion exploration"],
+      "recommended_music_mood": "adventure"
+    },
+    "2": {
+      "name": "Mansion Arc",
+      "description": "Roswaal mansion'da geçen korku ve gizem dolu olaylar",
+      "episode_range": [6, 11],
+      "tone": "mystery+horror",
+      "intensity": 8,
+      "key_moments": ["Maid twins reveal", "Elsa attacks", "Rem's sacrifice", "Subaru's death loop begins"],
+      "recommended_music_mood": "dark+suspense"
+    },
+    "3": {
+      "name": "White Whale + Witch Cult",
+      "description": "Beyaz Balina avı ve Witch Cult saldırısı",
+      "episode_range": [12, 18],
+      "tone": "epic+despair",
+      "intensity": 9,
+      "key_moments": ["White Whale battle", "Rem's death", "Return by death reveal", "Satella manifestation"],
+      "recommended_music_mood": "epic+tragic"
+    },
+    "4": {
+      "name": "Four Great Spirits",
+      "description": "Echidna ve Witch Cult'ün derinliklerine inceleme",
+      "episode_range": [19, 25],
+      "tone": "political+emotional",
+      "intensity": 7,
+      "key_moments": ["Echidna's contract", "Sanctuary reveal", "Garfiel's backstory", "Beatrice's tears"],
+      "recommended_music_mood": "emotional+contemplative"
+    },
+    "5": {
+      "name": "Sanctuary",
+      "description": "Maboroşi koruması altındaki Sanctuary ve ahiret mücadelesi",
+      "episode_range": [26, 50],
+      "tone": "psychological+revelation",
+      "intensity": 10,
+      "key_moments": ["Sanctuary trials", "Garfiel vs Subaru", "Frederica's transformation", "Reinhard's power"],
+      "recommended_music_mood": "intense+dramatic"
+    },
+    "6": {
+      "name": "Star Eating",
+      "description": "Web novel'de geçen varoluşsal ve evrensel kısmen",
+      "episode_range": [51, 100],
+      "tone": "existential",
+      "intensity": 10,
+      "key_moments": ["Re:Zero world", "Anastasia connection", "Cosmic horror"],
+      "recommended_music_mood": "otherworldly+existential"
+    }
+  }
+}
