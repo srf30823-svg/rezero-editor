@@ -1,116 +1,115 @@
 # RE:ZERO SHORTS EDITOR
 
 Otomatik YouTube Shorts editörü — sadece Re:Zero evrenine özel.
+LLM destekli (Owl Alpha), trace.moe sahne tanıma, yüz tespiti ve sinematik geçişler.
 
-## Kurulum (Termux)
+## Kurulum
 
 ```bash
-# 1. Ubuntu kur
-pkg install proot-distro -y
-proot-distro install ubuntu
-proot-distro login ubuntu
+# Bağımlılıklar
+apt install -y python3 python3-pip ffmpeg git
+pip install opencv-python-headless librosa numpy click pyyaml rich openai requests
 
-# 2. Bağımlılıkları kur
-apt update -y && apt install -y python3 python3-pip ffmpeg git
-pip install opencv-python-headless librosa soundfile ffmpeg-python numpy click pyyaml rich scenedetect openai yt-dlp --break-system-packages
+# Klonla
+git clone https://github.com/srf30823-svg/rezero-editor.git
+cd rezero-editor
 
-# 3. Repoyu klonla
-git clone https://github.com/srf30823-svg/rezero-editor.git ~/rezero-editor
-cd ~/rezero-editor
-
-# 4. Klasörleri oluştur (Termux Android)
-mkdir -p /data/data/com.termux/files/home/storage/shared/Download/rezero/input/{S01,S02,S03,S04,S05,music/action,music/emotional,music/dark}
-mkdir -p /data/data/com.termux/files/home/storage/shared/Download/rezero/output/{shorts,timelines}
+# Klasörler
+mkdir -p input/{S01,S02,S03,S04,S05,music} output/shorts
 ```
 
 ## Kullanım
 
 ```bash
-# Kütüphaneyi tara
-python main.py scan
+# Shorts oluştur (trace.moe + yüz tespiti ile)
+python main.py edit -i episode.mp4 -d 59
 
-# Otomatik edit (Owl Alpha yönetir)
-python main.py edit --input /path/to/video.mp4 --duration 59
+# Hızlı mod (trace.moe + LLM yok)
+python main.py edit -i episode.mp4 -d 59 --no-trace --no-llm
 
-# Hızlı mod (ücretsiz, LLM yok)
-python main.py edit --input /path/to/video.mp4 --no-llm
+# Çoklu thread (CPU render hızı)
+python main.py edit -i episode.mp4 -d 59 --threads 4
 
-# Tüm sezon toplu edit
-python main.py batch --season 1 --music track.mp3
+# Toplu işlem
+python main.py batch --season 1 --episodes 1-25
 
-# Cache yönetimi
-python main.py cache --info
-python main.py cache --clear
+# Sistem kontrol
+python main.py validate
 ```
 
 ## Özellikler
 
-- **Deep Analysis**: FFmpeg ile sahne tespiti (OpenCV'den hızlı, doğru)
-- **Cache**: Her video bir kez analiz edilir → `~/.rezero_cache/`
-- **Owl Alpha Director**: LLM ile akıllı klip sıralama ve müzik seçimi
-- **Voice Ducking**: Side-chain compression ile diyalog koruma
-- **Beat Sync**: Müzik ritmine senkronize kurgu
-- **9:16 Format**: 1080x1920 dikey video, siyah bant dolgulu
-- **Çoklu Sezon**: S01-S05 arası tüm bölümleri destekler
+| Özellik | Açıklama |
+|---------|----------|
+| **Deep Analysis** | FFmpeg sahne tespiti, 153 sahne / 36sn |
+| **Cache** | `~/.rezero_cache/` — bir kez analiz, milisaniyede yükle |
+| **Owl Alpha** | OpenRouter LLM ile akıllı klip sıralama + müzik |
+| **trace.moe** | Anime sahne tanıma, %99+ benzerlik |
+| **Yüz Tespiti** | lbpcascade_animeface ile anime yüz bulma |
+| **Re:Zero Lore DB** | Kritik anlar (Rem itirafı, Echidna sözleşme vs.) |
+| **Voice Ducking** | Diyalog ses 3.0x, otomatik müzik kısma |
+| **Beat Sync** | Müzik ritmine senkronize kurgu (librosa) |
+| **Ken Burns** | Zoom-in/out, x/y center tracking, titreme yok |
+| **16 Geçiş** | Sahne tipine göre wipeleft, dissolve, smoothleft, fade |
+| **Color Grading** | Action/emotional/dialogue/atmospheric tonlama |
+| **HW Accel** | CUDA/VAAPI/Videotoolbox auto-detect |
+| **480p Crop** | Siyah bar yok, scale=increase + crop |
 
-## API Keys (opsiyonel)
+## Parametreler
 
 ```bash
-# OpenRouter ile Owl Alpha için
+# Tüm opsiyonlar
+python main.py edit -i video.mp4 \
+  -m music.mp3 \           # Müzik (belirtilmezse otomatik)
+  -d 59 \                  # Hedef süre (saniye)
+  -o output/shorts.mp4 \   # Çıkış dosyası
+  -l tr \                  # Altyazı dili (tr/en)
+  --no-subs \              # Altyazısız
+  --no-llm \               # LLM'siz (kural tabanlı)
+  --no-trace \             # trace.moe'suz (hızlı)
+  --threads 4 \            # FFmpeg thread (CPU hızı)
+  --no-hwaccel             # HW ivmesiz
+```
+
+## API Key (opsiyonel)
+
+```bash
+# config.yaml'a yaz veya export et
 export OPENROUTER_API_KEY="sk-or-v1-..."
 ```
 
-API key olmadan program kural tabanlı modda çalışır.
+Olmadan kural tabanlı modda çalışır.
 
 ## Proje Yapısı
 
 ```
 rezero-editor/
-├── knowledge/          # Re:Zero bilgi bankası + Owl Director
-│   ├── arcs.json
-│   ├── characters.json
-│   ├── lore_engine.py
-│   └── owl_director.py     # 🦉 Owl Alpha LLM Director
-├── video/              # Video analiz modülleri
-│   ├── cache.py            # Analiz cache sistemi
-│   ├── deep_analyzer.py    # Derin sahne analizi (FFmpeg)
-│   ├── selector.py         # Stratejik klip seçimi
-│   ├── extractor.py        # FFmpeg klip çıkarımı
-│   └── ...
-├── audio/              # Ses işleme modülleri
-├── editor/             # Editör motorları
-└── output/             # Çıkış klasörü
-```
-
-## Komutlar
-
-| Komut | Açıklama |
-|-------|----------|
-| `scan` | Video kütüphanesini tara |
-| `analyze --input video.mp4` | Derin video analizi |
-| `edit --input video.mp4 --duration 59` | Shorts oluştur |
-| `edit --input video.mp4 --no-llm` | LLM'siz hızlı mod |
-| `export --timeline t.json --output v.mp4` | Timeline'dan render |
-| `batch --season 1 --episodes 1-25` | Toplu Shorts üretimi |
-| `best --season 1 --music t.mp3` | Mega Shorts (tüm sezon) |
-| `cache --info` | Cache durumu |
-| `cache --clear` | Cache temizle |
-| `validate` | Sistem kontrolü |
-
-## Cache Sistemi
-
-Videolar ilk analizde `~/.rezero_cache/` altına JSON olarak kaydedilir.
-Aynı video tekrar analiz edilmez — saniyeler içinde sonuç döner.
-Cache, dosya boyutu + ilk 1MB hash ile benzersizdir.
-
-```bash
-python main.py cache --info       # Cache durumu
-python main.py cache --clear      # Tüm cache temizle
-python main.py cache --clear --video episode.mp4  # Tek video
+├── main.py                 # CLI
+├── config.yaml             # Yapılandırma
+├── knowledge/              # Bilgi bankası
+│   ├── owl_director.py     # 🦉 Owl Alpha LLM
+│   ├── scene_identifier.py # trace.moe API
+│   ├── face_analyzer.py    # Anime yüz tespiti
+│   └── rezero_lore_db.py   # Kritik anlar DB
+├── video/                  # Video analizi
+│   ├── deep_analyzer.py    # Sahne + yüz + trace
+│   ├── selector.py         # Klip seçimi
+│   └── cache.py            # Cache sistemi
+├── audio/                  # Ses işleme
+│   ├── music_selector.py
+│   ├── voice_ducking.py
+│   └── beat_detector.py
+├── editor/                 # Editör motoru
+│   ├── renderer.py         # FFmpeg render (crop, Ken Burns, 16 geçiş, hwaccel)
+│   ├── effects.py          # Efekt motoru (flash, shake, grade)
+│   ├── captions.py         # SRT/ASS altyazı (KeyMoment stili)
+│   └── timeline.py         # Timeline oluşturma
+└── output/                 # Çıkışlar
 ```
 
 ## Test
 
 ```bash
 python -m pytest tests/ -v
+python main.py validate      # Sistem kontrolü
 ```
