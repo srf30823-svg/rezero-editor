@@ -53,8 +53,9 @@ def generate_captions(clips: List[Dict], language: str = "tr") -> List[Dict]:
         intensity = clip.get("intensity", 5)
         duration = clip.get("duration", 3)
         is_key = clip.get("is_key_moment", False)
-        key_label = clip.get("trace_moe", {}).get("label", "")
-        lore_importance = clip.get("trace_moe", {}).get("importance", 0)
+        tm = clip.get("trace_moe")
+        key_label = tm.get("label", "") if isinstance(tm, dict) else ""
+        lore_importance = tm.get("importance", 0) if isinstance(tm, dict) else 0
 
         captions = []
 

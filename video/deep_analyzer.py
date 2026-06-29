@@ -1,4 +1,4 @@
-"""Deep scene analysis using FFmpeg scene detection + trace.moe + face detection."""
+"""Deep scene analysis: FFmpeg scene detection + face + trace.moe + local DB."""
 import subprocess
 import json
 import os
@@ -6,8 +6,9 @@ import re
 from pathlib import Path
 from video.cache import load_cache, save_cache
 from knowledge.face_analyzer import analyze_scene_faces
-from knowledge.scene_identifier import batch_identify_scenes
+from knowledge.scene_identifier import batch_identify_scenes, TRACE_MOE_QUOTA_EXCEEDED
 from knowledge.rezero_lore_db import score_scene_importance
+from video.local_scene_db import batch_match_local, index_video
 
 DEFAULT_THRESHOLD = 0.12
 
@@ -82,7 +83,8 @@ def estimate_scene_motion(scene_idx: int, scene_count: int) -> float:
         return 8.0
 
 
-def deep_analyze_video(video_path: str, use_cache: bool = True, use_trace: bool = True) -> dict:
+def deep_analyze_video(video_path: str, use_cache: bool = True, use_trace: bool = True,
+                        season: int = 0, episode: int = 0) -> dict:
     """
     Full deep analysis of a video file. Results are cached.
 
@@ -90,7 +92,8 @@ def deep_analyze_video(video_path: str, use_cache: bool = True, use_trace: bool 
     2. Single audio stream check
     3. Motion estimation from scene position
     4. Anime face detection (OpenCV lbpcascade)
-    5. trace.moe scene identification
+    5. trace.moe scene identification + local DB fallback
+    6. Local scene fingerprint indexing
 
     Returns:
         path, duration, scenes (start, end, duration, scene_type, intensity, ...)
@@ -145,12 +148,19 @@ def deep_analyze_video(video_path: str, use_cache: bool = True, use_trace: bool 
             "final_score": round(base_score, 2),
         })
 
+    scenes = analyze_scene_faces(scenes, video_path, sample_rate=5)
+
     if use_trace:
-        scenes = analyze_scene_faces(scenes, video_path, sample_rate=10)
-        scenes = batch_identify_scenes(scenes, video_path, sample_rate=5)
+        scenes = batch_identify_scenes(scenes, video_path, sample_rate=10)
+        if TRACE_MOE_QUOTA_EXCEEDED:
+            scenes = batch_match_local(scenes, video_path, sample_rate=10)
+
+    if season > 0 and episode > 0:
+        index_video(video_path, season, episode, scenes, sample_rate=15)
 
     for s in scenes:
-        lore_score = score_scene_importance(s)
+        tm = s.get("trace_moe")
+        lore_score = score_scene_importance(s) if tm and isinstance(tm, dict) else 0
         if lore_score > 0:
             s["final_score"] = round(min(s.get("final_score", s["score"]) + lore_score, 10.0), 2)
             s["is_key_moment"] = lore_score >= 8.0

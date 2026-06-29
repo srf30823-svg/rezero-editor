@@ -1,11 +1,11 @@
-"""Anime sahne tanımlayıcı — trace.moe API kullanır."""
+"""Anime sahne tanımlayıcı — trace.moe API + yerel DHash fallback."""
 import requests
-import base64
 import time
 import os
 import subprocess
 import tempfile
 import shutil
+import struct
 from pathlib import Path
 
 
@@ -17,28 +17,60 @@ REZERO_ANILIST_IDS = {
     142838: {"season": 3, "name": "Re:Zero S3"},
     189046: {"season": 4, "name": "Re:Zero S4"},
 }
+TRACE_MOE_QUOTA_EXCEEDED = False
 
 
-def identify_frame(frame_path: str, retry: int = 3) -> dict:
+def _dhash(frame_path: str) -> int:
+    """Perceptual hash (difference hash) for local frame matching."""
+    try:
+        r = subprocess.run([
+            "ffmpeg", "-y", "-i", frame_path,
+            "-vf", "scale=9:8:flags=bilinear",
+            "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "gray", "-"
+        ], capture_output=True, timeout=10)
+        if r.returncode != 0 or len(r.stdout) < 72:
+            return 0
+        pixels = list(struct.unpack("B" * 72, r.stdout[:72]))
+        h = 0
+        for y in range(8):
+            for x in range(8):
+                if pixels[y * 9 + x] < pixels[y * 9 + x + 1]:
+                    h |= 1 << (y * 8 + x)
+        return h
+    except Exception:
+        return 0
+
+
+def identify_frame(frame_path: str, retry: int = 2) -> dict:
+    """trace.moe ile kare tanımla. Kota aşılırsa yerel hash kullan."""
+    global TRACE_MOE_QUOTA_EXCEEDED
+
     result = {
         "matched": False, "anime": None, "season": None,
-        "episode": None, "timestamp": 0.0, "similarity": 0.0, "is_rezero": False
+        "episode": None, "timestamp": 0.0, "similarity": 0.0, "is_rezero": False,
+        "dhash": _dhash(frame_path),
     }
+
+    if TRACE_MOE_QUOTA_EXCEEDED:
+        return result
+
     for attempt in range(retry):
         try:
             with open(frame_path, "rb") as f:
                 response = requests.post(
                     TRACE_MOE_API,
                     files={"image": ("frame.jpg", f, "image/jpeg")},
-                    timeout=15
+                    timeout=10
                 )
             if response.status_code == 429:
-                wait = 5 * (attempt + 1)
-                print(f"  trace.moe rate limit, {wait}s bekleniyor...")
-                time.sleep(wait)
+                time.sleep(3 * (attempt + 1))
                 continue
+            if response.status_code == 402:
+                print("  ⚠ trace.moe kotası doldu ({}/24h). Yerel hash moduna geçiliyor.".format(
+                    response.json().get("used", "?")))
+                TRACE_MOE_QUOTA_EXCEEDED = True
+                return result
             if response.status_code != 200:
-                print(f"  trace.moe HTTP {response.status_code}: {response.text[:200]}")
                 break
             data = response.json()
             results = data.get("result", [])
@@ -57,22 +89,21 @@ def identify_frame(frame_path: str, retry: int = 3) -> dict:
             break
         except requests.exceptions.Timeout:
             if attempt == retry - 1:
-                result["error"] = "trace.moe zaman aşımı"
-            time.sleep(2)
+                result["error"] = "zaman aşımı"
+            time.sleep(1)
         except Exception as e:
             if attempt == retry - 1:
                 result["error"] = str(e)
-            time.sleep(2)
+            time.sleep(1)
     return result
 
 
-def batch_identify_scenes(scenes: list, video_path: str, sample_rate: int = 5) -> list:
+def batch_identify_scenes(scenes: list, video_path: str, sample_rate: int = 10) -> list:
     identified = 0
     temp_dir = tempfile.mkdtemp()
     try:
         for i, scene in enumerate(scenes):
             if i % sample_rate != 0:
-                scene["trace_moe"] = None
                 continue
             mid_time = scene["start"] + scene["duration"] / 2
             frame_path = os.path.join(temp_dir, f"frame_{i}.jpg")
@@ -80,10 +111,8 @@ def batch_identify_scenes(scenes: list, video_path: str, sample_rate: int = 5) -
                    "-vframes", "1", "-q:v", "3", "-s", "320x180", frame_path]
             r = subprocess.run(cmd, capture_output=True)
             if r.returncode != 0 or not os.path.exists(frame_path):
-                scene["trace_moe"] = None
                 continue
             result = identify_frame(frame_path)
-            scene["trace_moe"] = result
             if result["is_rezero"]:
                 identified += 1
             time.sleep(1.2)

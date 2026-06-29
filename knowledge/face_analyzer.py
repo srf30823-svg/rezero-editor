@@ -29,27 +29,36 @@ def detect_faces(frame_path: str) -> list:
         return []
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     h, w = gray.shape
-    min_size = max(int(min(h, w) * 0.05), 20)
+    # Equalize histogram for better detection on dark anime scenes
+    gray = cv2.equalizeHist(gray)
     faces = cascade.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(min_size, min_size)
+        gray, scaleFactor=1.05, minNeighbors=3, minSize=(20, 20)
     )
     return [{"x": int(x), "y": int(y), "w": int(w_), "h": int(h_)} for (x, y, w_, h_) in faces]
 
 
-def analyze_scene_faces(scenes: list, video_path: str, sample_rate: int = 10) -> list:
+def analyze_scene_faces(scenes: list, video_path: str, sample_rate: int = 5) -> list:
     face_count = 0
     face_scenes = 0
     temp_dir = tempfile.mkdtemp()
     try:
         for i, scene in enumerate(scenes):
             if i % sample_rate != 0:
+                if "has_faces" not in scene:
+                    scene["has_faces"] = False
+                    scene["face_count"] = 0
+                    scene["faces"] = []
                 continue
             mid_time = scene["start"] + scene["duration"] / 2
             frame_path = os.path.join(temp_dir, f"face_{i}.jpg")
+            # Bigger frame for better detection
             cmd = ["ffmpeg", "-y", "-ss", str(mid_time), "-i", video_path,
-                   "-vframes", "1", "-q:v", "4", "-s", "320x240", frame_path]
+                   "-vframes", "1", "-q:v", "2", "-s", "640x480", frame_path]
             r = subprocess.run(cmd, capture_output=True)
             if r.returncode != 0 or not os.path.exists(frame_path):
+                scene["has_faces"] = False
+                scene["face_count"] = 0
+                scene["faces"] = []
                 continue
             faces = detect_faces(frame_path)
             scene["faces"] = faces
