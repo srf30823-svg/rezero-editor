@@ -53,17 +53,34 @@ def generate_captions(clips: List[Dict], language: str = "tr", minimal: bool = T
         is_key = clip.get("is_key_moment", False)
         tm = clip.get("trace_moe")
         key_label = tm.get("label", "") if isinstance(tm, dict) else ""
+        mood = clip.get("lore_mood", clip.get("scene_type", "dialogue"))
 
         captions = []
 
-        if is_key and key_label and key_label in KEY_MOMENT_CAPTIONS:
-            key_text = KEY_MOMENT_CAPTIONS[key_label].get(language, KEY_MOMENT_CAPTIONS[key_label]["en"])
-            if len(key_text) < 60:
+        if is_key:
+            if key_label and key_label in KEY_MOMENT_CAPTIONS:
+                key_text = KEY_MOMENT_CAPTIONS[key_label].get(language, KEY_MOMENT_CAPTIONS[key_label]["en"])
+                if len(key_text) < 60:
+                    captions.append({
+                        "text": f"「{key_text}」",
+                        "start": duration * 0.1,
+                        "end": duration * 0.9,
+                    })
+            elif not minimal:
+                texts = CAPTION_TEXTS.get(mood, CAPTION_TEXTS["dialogue"])[language]
                 captions.append({
-                    "text": f"「{key_text}」",
-                    "start": duration * 0.1,
-                    "end": duration * 0.9,
+                    "text": texts[hash(f"{clip.get('start', 0)}_{key_label}") % len(texts)],
+                    "start": duration * 0.15,
+                    "end": duration * 0.85,
                 })
+
+        if not captions:
+            texts = CAPTION_TEXTS.get(mood, CAPTION_TEXTS["dialogue"])[language]
+            captions.append({
+                "text": texts[hash(str(clip.get("start", 0))) % len(texts)],
+                "start": duration * 0.15,
+                "end": duration * 0.85,
+            })
 
         clip["captions"] = captions
 

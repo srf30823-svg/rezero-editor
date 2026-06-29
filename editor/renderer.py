@@ -149,6 +149,9 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
             if not sp.exists():
                 console.print(f"[yellow]⚠ Altyazı dosyası bulunamadı: {subtitle_path}[/yellow]")
                 subtitle_path = None
+            elif sp.stat().st_size == 0:
+                console.print(f"[yellow]⚠ Altyazı dosyası boş, atlanıyor: {subtitle_path}[/yellow]")
+                subtitle_path = None
             else:
                 subtitled = temp_dir / "subtitled.mp4"
                 sub_cmd = [
