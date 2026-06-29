@@ -13,7 +13,9 @@ TRACE_MOE_API = "https://api.trace.moe/search"
 REZERO_ANILIST_IDS = {
     21355: {"season": 1, "name": "Re:Zero S1"},
     97986: {"season": 2, "name": "Re:Zero S2"},
+    108632: {"season": 2, "name": "Re:Zero S2 Part 2"},
     142838: {"season": 3, "name": "Re:Zero S3"},
+    189046: {"season": 4, "name": "Re:Zero S4"},
 }
 
 
@@ -25,15 +27,18 @@ def identify_frame(frame_path: str, retry: int = 3) -> dict:
     for attempt in range(retry):
         try:
             with open(frame_path, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode()
-            response = requests.post(
-                TRACE_MOE_API, json={"image": f"data:image/jpeg;base64,{image_data}"},
-                timeout=15, headers={"Content-Type": "application/json"}
-            )
+                response = requests.post(
+                    TRACE_MOE_API,
+                    files={"image": ("frame.jpg", f, "image/jpeg")},
+                    timeout=15
+                )
             if response.status_code == 429:
-                time.sleep(5 * (attempt + 1))
+                wait = 5 * (attempt + 1)
+                print(f"  trace.moe rate limit, {wait}s bekleniyor...")
+                time.sleep(wait)
                 continue
             if response.status_code != 200:
+                print(f"  trace.moe HTTP {response.status_code}: {response.text[:200]}")
                 break
             data = response.json()
             results = data.get("result", [])
@@ -50,6 +55,10 @@ def identify_frame(frame_path: str, retry: int = 3) -> dict:
             if result["is_rezero"]:
                 result["season"] = REZERO_ANILIST_IDS[anilist_id]["season"]
             break
+        except requests.exceptions.Timeout:
+            if attempt == retry - 1:
+                result["error"] = "trace.moe zaman aşımı"
+            time.sleep(2)
         except Exception as e:
             if attempt == retry - 1:
                 result["error"] = str(e)
