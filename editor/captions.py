@@ -5,12 +5,12 @@ from pathlib import Path
 
 CAPTION_TEXTS = {
     "action": {
-        "tr": ["⚡ Aksiyon!", "Savaş!", "Çarpışma!", "Mücadele!", "Darbe!"],
-        "en": ["⚡ Action!", "Battle!", "Clash!", "Struggle!", "Strike!"],
+        "tr": ["⚡ Çarpışma!", "Savaş alanı!", "Mücadele!", "Darbe anı!", "Hücum!"],
+        "en": ["⚡ Clash!", "Battle!", "Struggle!", "Strike!", "Assault!"],
     },
     "emotional": {
-        "tr": ["Duygusal An", "Gözyaşı Anı", "Kalp Kırıklığı", "Veda", "Kavuşma"],
-        "en": ["Emotional Moment", "Tearjerker", "Heartbreak", "Farewell", "Reunion"],
+        "tr": ["💔 Duygusal An", "Gözyaşı Anı", "Kalp Kırıklığı", "Veda", "Kavuşma"],
+        "en": ["💔 Emotional Moment", "Tearjerker", "Heartbreak", "Farewell", "Reunion"],
     },
     "dialogue": {
         "tr": ["Konuşma", "Diyalog", "Sohbet", "Tartışma", "İtiraf"],
@@ -22,40 +22,61 @@ CAPTION_TEXTS = {
     },
 }
 
+SUBARU_TEXTS = {
+    "action": {"tr": "Subaru: Neler oluyor?!", "en": "Subaru: What's happening?!"},
+    "dialogue": {"tr": "Subaru konuşuyor...", "en": "Subaru speaking..."},
+}
+REM_TEXTS = {
+    "action": {"tr": "Rem: Tehlikeli!", "en": "Rem: Dangerous!"},
+    "dialogue": {"tr": "Rem: Subaru-kun...", "en": "Rem: Subaru-kun..."},
+}
+EMILIA_TEXTS = {
+    "action": {"tr": "Emilia: Durun!", "en": "Emilia: Stop!"},
+    "dialogue": {"tr": "Emilia: Lütfen...", "en": "Emilia: Please..."},
+}
+
+KEY_MOMENT_CAPTIONS = {
+    "rem_confession": {"tr": "Rem: Ben senin kalbin olmak istiyorum", "en": "Rem: I want to be your heart"},
+    "rem_love_confession": {"tr": "Rem: Seni seviyorum Subaru-kun", "en": "Rem: I love you Subaru-kun"},
+    "subaru_breakdown": {"tr": "Subaru çöküşün eşiğinde", "en": "Subaru on the verge of collapse"},
+    "subaru_rise": {"tr": "Subaru ayağa kalkıyor", "en": "Subaru rises again"},
+    "echidna_contract": {"tr": "Echidna: Sözleşme yapalım mı?", "en": "Echidna: Shall we make a contract?"},
+    "subaru_choose_emilia": {"tr": "Subaru: Seni seçiyorum Emilia", "en": "Subaru: I choose you, Emilia"},
+}
+
 TOP_CHARACTERS = ["Rem", "Subaru", "Emilia", "Beatrice", "Echidna", "Ram", "Roswaal", "Otto", "Garfiel", "Petra"]
 
 
 def generate_captions(clips: List[Dict], language: str = "tr") -> List[Dict]:
-    """
-    Video kliplere sahne türüne göre altyazı üretir.
-
-    Args:
-        clips: Klip listesi
-        language: Altyazı dili (tr/en)
-
-    Returns:
-        Altyazı eklenmiş klip listesi
-    """
     for clip in clips:
         scene_type = clip.get("scene_type", "dialogue")
         intensity = clip.get("intensity", 5)
         duration = clip.get("duration", 3)
-        characters = identify_characters(clip)
+        is_key = clip.get("is_key_moment", False)
+        key_label = clip.get("trace_moe", {}).get("label", "")
+        lore_importance = clip.get("trace_moe", {}).get("importance", 0)
 
         captions = []
 
-        if characters:
-            name_text = " / ".join(characters[:2])
-            captions.append({"text": name_text, "start": 0.0, "end": min(1.5, duration)})
+        if is_key and key_label and key_label in KEY_MOMENT_CAPTIONS:
+            key_text = KEY_MOMENT_CAPTIONS[key_label].get(language, KEY_MOMENT_CAPTIONS[key_label]["en"])
+            if len(key_text) < 60:
+                captions.append({
+                    "text": f"「{key_text}」",
+                    "start": duration * 0.1,
+                    "end": duration * 0.9,
+                })
+                clip["captions"] = captions
+                continue
 
-        texts = CAPTION_TEXTS.get(scene_type, CAPTION_TEXTS["dialogue"])
-        lang_texts = texts.get(language, texts["en"])
+        scene_texts = CAPTION_TEXTS.get(scene_type, CAPTION_TEXTS["dialogue"])
+        lang_texts = scene_texts.get(language, scene_texts["en"])
         caption_text = lang_texts[int(intensity) % len(lang_texts)]
 
         captions.append({
             "text": caption_text,
-            "start": max(0.5, duration * 0.2),
-            "end": min(duration - 0.3, duration * 0.7),
+            "start": duration * 0.15,
+            "end": duration * 0.75,
         })
 
         clip["captions"] = captions
@@ -170,7 +191,7 @@ def generate_ass(clips: List[Dict], global_offset: float = 0.0) -> str:
     """
     output = ["[Script Info]", "Title: RE:Zero Shorts Captions",
               "ScriptType: v4.00+", "WrapStyle: 0", "ScaledBorderAndShadow: yes",
-              "PlayResX: 1080", "PlayResY: 1920", ""]
+              "PlayResX: 480", "PlayResY: 854", ""]
     output.append(generate_ass_style_block())
     output.append("[Events]")
     output.append("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text")

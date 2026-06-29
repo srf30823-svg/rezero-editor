@@ -164,7 +164,8 @@ def cli():
 @click.option("--input", "-i", required=True, help="Analiz edilecek video dosyası")
 @click.option("--output", "-o", default="analysis.json", help="Analiz sonucu çıkış dosyası")
 @click.option("--duration", "-d", default=None, help="Hedef klip süresi (saniye)")
-def analyze(input, output, duration):
+@click.option("--no-trace", is_flag=True, help="trace.moe analizini devre dışı bırak")
+def analyze(input, output, duration, no_trace):
     """Deep-analyze a video and cache the results."""
     video_path = Path(input)
     if not video_path.exists():
@@ -178,7 +179,7 @@ def analyze(input, output, duration):
     console.print(f"[yellow]Video: {input}[/yellow]")
 
     try:
-        analysis = deep_analyze_video(str(video_path))
+        analysis = deep_analyze_video(str(video_path), use_trace=not no_trace)
 
         from video.selector import select_clips
         clips = select_clips(
@@ -219,7 +220,8 @@ def analyze(input, output, duration):
 @click.option("--language", "-l", default="tr", help="Altyazı dili (tr/en)")
 @click.option("--no-subs", is_flag=True, help="Altyazıları devre dışı bırak")
 @click.option("--no-llm", is_flag=True, help="Kural tabanlı mod (hızlı, ücretsiz, LLM yok)")
-def edit(input, music, duration, output, language, no_subs, no_llm):
+@click.option("--no-trace", is_flag=True, help="trace.moe analizini devre dışı bırak (hızlı mod)")
+def edit(input, music, duration, output, language, no_subs, no_llm, no_trace):
     """Create a Shorts video from source video and music."""
     video_path = Path(input)
     if not video_path.exists():
@@ -249,7 +251,7 @@ def edit(input, music, duration, output, language, no_subs, no_llm):
         console.print("[cyan]🦉 Owl Alpha Director: Aktif[/cyan]")
 
     try:
-        analysis = deep_analyze_video(str(video_path))
+        analysis = deep_analyze_video(str(video_path), use_trace=not no_trace)
         scene_count = analysis.get("total_scenes", 0)
         console.print(f"[green]✓ {scene_count} sahne tespit edildi[/green]")
 

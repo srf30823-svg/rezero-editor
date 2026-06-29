@@ -1,35 +1,31 @@
 api:
-  # OPENROUTER_API_KEY env var kullanilir. Buraya yazma, güvenlik riski!
+  llm_model: openrouter/owl-alpha
   openrouter_key: ""
   use_llm: true
-  llm_model: "openrouter/owl-alpha"
-
+audio:
+  dialogue_volume: 1.0
+  music_ducked_volume: 0.12
+  music_volume: 0.55
+editing:
+  beat_sync: true
+  max_clip_duration: 8.0
+  min_clip_duration: 1.5
+  scene_change_threshold: 0.35
+  strategy: balanced
+output:
+  directory: output
+  duration_seconds: 59
+  format: mp4
+  fps: 30
+  resolution:
+  - 1080
+  - 1920
 paths:
   input_base: /data/data/com.termux/files/home/storage/shared/Download/rezero/input
   music_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/input/music
   output_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/output/shorts
   timeline_dir: /data/data/com.termux/files/home/storage/shared/Download/rezero/output/timelines
-
-output:
-  resolution: [1080, 1920]
-  fps: 30
-  duration_seconds: 59
-  format: mp4
-  directory: output
-
-editing:
-  beat_sync: true
-  min_clip_duration: 1.5
-  max_clip_duration: 8.0
-  scene_change_threshold: 0.35
-  strategy: "balanced"
-
-audio:
-  music_volume: 0.55
-  dialogue_volume: 1.0
-  music_ducked_volume: 0.12
-
 temp:
-  frames_dir: /tmp/rezero_frames
   audio_dir: /tmp/rezero_audio
+  frames_dir: /tmp/rezero_frames
   render_dir: /tmp/rezero_render

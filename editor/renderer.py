@@ -16,17 +16,17 @@ console = Console()
 
 TRANSITION_DURATION = 0.35
 FPS = 30
-WIDTH = 1080
-HEIGHT = 1920
+WIDTH = 480
+HEIGHT = 854
 
 XFADE_MAP = {
-    ("action", "action"): "fadeblack",
-    ("action", "dialogue"): "fade",
-    ("action", "emotional"): "fadeblack",
-    ("dialogue", "action"): "slideleft",
+    ("action", "action"): "fade",
+    ("action", "dialogue"): "slideleft",
+    ("action", "emotional"): "fade",
+    ("dialogue", "action"): "dissolve",
     ("dialogue", "dialogue"): "dissolve",
     ("dialogue", "emotional"): "fade",
-    ("emotional", "action"): "fadeblack",
+    ("emotional", "action"): "fade",
     ("emotional", "emotional"): "dissolve",
     ("emotional", "dialogue"): "fade",
 }
@@ -118,9 +118,9 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
                 try:
                     apply_ducking(
                         str(current), music_path, str(mixed),
-                        dialogue_volume=1.0,
-                        music_volume_normal=0.6,
-                        music_volume_ducked=0.15,
+                        dialogue_volume=3.0,
+                        music_volume_normal=0.5,
+                        music_volume_ducked=0.1,
                     )
                 except RuntimeError as e:
                     console.print(f"[yellow]⚠ Ducking başarısız, basit karışıma dönülüyor: {e}[/yellow]")
@@ -129,7 +129,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
                 audio_cmd = [
                     "ffmpeg", "-i", str(current), "-i", music_path,
                     "-filter_complex",
-                    "[0:a]volume=1.0[v];[1:a]volume=0.5[m];[v][m]amix=inputs=2:duration=first[a]",
+                    "[0:a]volume=3.0[v];[1:a]volume=0.35[m];[v][m]amix=inputs=2:duration=first[a]",
                     "-map", "0:v", "-map", "[a]",
                     "-c:v", "copy", "-c:a", "aac",
                     "-y", str(mixed),
@@ -162,20 +162,16 @@ def _render_clip(clip: dict, index: int, temp_dir: Path) -> tuple:
 
     filters = []
 
-    # Scale + pad to 1080x1920
-    filters.append(
-        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2:black"
-    )
-
-    # Ken Burns zoom (alternate in/out)
+    # Ken Burns zoom (alternate in/out) — outputs at WIDTHxHEIGHT directly
     nframes = int(duration * FPS)
     if nframes < 2:
         nframes = 2
     speed = 0.0006
     if index % 2 == 0:
+        zoom_end = 1.0 + (speed * nframes)
         zoom_expr = f"if(eq(on,1),1.0,zoom+{speed})"
     else:
+        zoom_end = 1.08 - (speed * nframes)
         zoom_expr = f"if(eq(on,1),1.08,zoom-{speed})"
     filters.append(
         f"zoompan=z='{zoom_expr}':d={nframes}:fps={FPS}:s={WIDTH}x{HEIGHT}"

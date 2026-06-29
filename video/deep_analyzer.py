@@ -1,10 +1,13 @@
-"""Deep scene analysis using FFmpeg scene detection + light metadata."""
+"""Deep scene analysis using FFmpeg scene detection + trace.moe + face detection."""
 import subprocess
 import json
 import os
 import re
 from pathlib import Path
 from video.cache import load_cache, save_cache
+from knowledge.face_analyzer import analyze_scene_faces
+from knowledge.scene_identifier import batch_identify_scenes
+from knowledge.rezero_lore_db import score_scene_importance
 
 DEFAULT_THRESHOLD = 0.12
 
@@ -79,13 +82,15 @@ def estimate_scene_motion(scene_idx: int, scene_count: int) -> float:
         return 8.0
 
 
-def deep_analyze_video(video_path: str, use_cache: bool = True) -> dict:
+def deep_analyze_video(video_path: str, use_cache: bool = True, use_trace: bool = True) -> dict:
     """
     Full deep analysis of a video file. Results are cached.
 
     1. Scene detection at 360p (fast)
     2. Single audio stream check
     3. Motion estimation from scene position
+    4. Anime face detection (OpenCV lbpcascade)
+    5. trace.moe scene identification
 
     Returns:
         path, duration, scenes (start, end, duration, scene_type, intensity, ...)
@@ -139,6 +144,16 @@ def deep_analyze_video(video_path: str, use_cache: bool = True) -> dict:
             "score": round(base_score, 2),
             "final_score": round(base_score, 2),
         })
+
+    if use_trace:
+        scenes = analyze_scene_faces(scenes, video_path, sample_rate=10)
+        scenes = batch_identify_scenes(scenes, video_path, sample_rate=5)
+
+    for s in scenes:
+        lore_score = score_scene_importance(s)
+        if lore_score > 0:
+            s["final_score"] = round(min(s.get("final_score", s["score"]) + lore_score, 10.0), 2)
+            s["is_key_moment"] = lore_score >= 8.0
 
     result = {
         "path": video_path,
