@@ -9,6 +9,7 @@ from typing import Optional, Union, List
 
 from audio.music_selector import select_music, analyze_clips_mood, get_music_dir
 from audio.voice_ducking import apply_ducking
+from audio.sfx_engine import apply_sfx, get_sfx_preset
 from knowledge.owl_director import direct_edit_owl
 from rich.console import Console
 
@@ -125,6 +126,11 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
         scene_types = []
         for i, clip in enumerate(clips):
             p, dur = _render_clip(clip, i, temp_dir, hwaccel_opts, threads)
+            preset = get_sfx_preset(clip)
+            if preset.get("filter"):
+                sfx_path = str(temp_dir / f"clip_{i:04d}_sfx.mp4")
+                p = apply_sfx(p, None, clip, sfx_path)
+                console.print(f"  [dim]SFX {i}: {preset['description']}[/dim]")
             clip_paths.append(p)
             durations.append(dur)
             scene_types.append(clip.get("scene_type", "dialogue"))
@@ -138,19 +144,24 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
 
         current = merged
 
-        if subtitle_path and Path(subtitle_path).exists():
-            subtitled = temp_dir / "subtitled.mp4"
-            sub_cmd = [
-                "ffmpeg", "-i", str(current),
-                "-vf", f"subtitles={_escape_path(subtitle_path)}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-c:a", "copy",
-                "-preset", "fast", "-crf", "23",
-                "-threads", str(threads),
-                "-y", str(subtitled),
-            ]
-            _run_ffmpeg(sub_cmd, "Altyazı yakma")
-            current = subtitled
+        if subtitle_path:
+            sp = Path(subtitle_path)
+            if not sp.exists():
+                console.print(f"[yellow]⚠ Altyazı dosyası bulunamadı: {subtitle_path}[/yellow]")
+                subtitle_path = None
+            else:
+                subtitled = temp_dir / "subtitled.mp4"
+                sub_cmd = [
+                    "ffmpeg", "-i", str(current),
+                    "-vf", f"subtitles={_escape_path(str(sp))}",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                    "-c:a", "copy",
+                    "-preset", "fast", "-crf", "23",
+                    "-threads", str(threads),
+                    "-y", str(subtitled),
+                ]
+                _run_ffmpeg(sub_cmd, "Altyazı yakma")
+                current = subtitled
 
         if music_path and Path(music_path).exists():
             mixed = temp_dir / "final.mp4"
