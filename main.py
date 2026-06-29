@@ -295,7 +295,7 @@ def edit(input, music, duration, output, language, no_subs, no_llm, no_trace, th
 
         from editor.captions import generate_captions, generate_srt, generate_ass
         console.print("[blue]→ Altyazılar oluşturuluyor...[/blue]")
-        captioned_clips = generate_captions(clips, language=language)
+        captioned_clips = generate_captions(clips, language=language, minimal=True)
 
         from editor.timeline import create_timeline
         console.print("[blue]→ Timeline oluşturuluyor...[/blue]")

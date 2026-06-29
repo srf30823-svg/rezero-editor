@@ -47,15 +47,12 @@ KEY_MOMENT_CAPTIONS = {
 TOP_CHARACTERS = ["Rem", "Subaru", "Emilia", "Beatrice", "Echidna", "Ram", "Roswaal", "Otto", "Garfiel", "Petra"]
 
 
-def generate_captions(clips: List[Dict], language: str = "tr") -> List[Dict]:
+def generate_captions(clips: List[Dict], language: str = "tr", minimal: bool = True) -> List[Dict]:
     for clip in clips:
-        scene_type = clip.get("scene_type", "dialogue")
-        intensity = clip.get("intensity", 5)
         duration = clip.get("duration", 3)
         is_key = clip.get("is_key_moment", False)
         tm = clip.get("trace_moe")
         key_label = tm.get("label", "") if isinstance(tm, dict) else ""
-        lore_importance = tm.get("importance", 0) if isinstance(tm, dict) else 0
 
         captions = []
 
@@ -67,18 +64,6 @@ def generate_captions(clips: List[Dict], language: str = "tr") -> List[Dict]:
                     "start": duration * 0.1,
                     "end": duration * 0.9,
                 })
-                clip["captions"] = captions
-                continue
-
-        scene_texts = CAPTION_TEXTS.get(scene_type, CAPTION_TEXTS["dialogue"])
-        lang_texts = scene_texts.get(language, scene_texts["en"])
-        caption_text = lang_texts[int(intensity) % len(lang_texts)]
-
-        captions.append({
-            "text": caption_text,
-            "start": duration * 0.15,
-            "end": duration * 0.75,
-        })
 
         clip["captions"] = captions
 

@@ -222,22 +222,33 @@ def _render_clip(clip: dict, index: int, temp_dir: Path,
             f"crop={WIDTH}:{HEIGHT}"
         )
 
-    # Ken Burns zoom with center tracking
+    # Ken Burns zoom with center tracking — dramatic speed for visible animation
     nframes = int(duration * FPS)
     if nframes < 2:
         nframes = 2
-    speed = 0.0006
+    speed = 0.008  # was 0.0006 — 13x faster for visible zoom
     if index % 2 == 0:
+        zoom_end = 1.0 + speed * nframes
         zoom_expr = f"if(eq(on,1),1.0,zoom+{speed})"
     else:
-        zoom_expr = f"if(eq(on,1),1.08,zoom-{speed})"
+        zoom_end = 1.15 - speed * nframes
+        if zoom_end < 1.0:
+            zoom_expr = f"if(eq(on,1),1.15,zoom-{speed})"
+        else:
+            zoom_expr = f"if(eq(on,1),1.15,zoom-{speed})"
 
-    # Center tracking: keep zoom centered on middle of frame
     x_expr = "iw/2 - (iw/zoom)/2"
     y_expr = "ih/2 - (ih/zoom)/2"
     filters.append(
         f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':d={nframes}:fps={FPS}:s={WIDTH}x{HEIGHT}"
     )
+
+    # Inline effects based on scene type
+    intensity = clip.get("intensity", 5)
+    if scene_type == "action" and intensity >= 6:
+        filters.append("drawbox=c=white:t=fill")
+    if scene_type == "action" and intensity >= 8:
+        filters.append("crop=iw-2:ih-2:1:1,scale=480:854:flags=neighbor")
 
     # Color grading
     grade = COLOR_GRADE_MAP.get(scene_type)
