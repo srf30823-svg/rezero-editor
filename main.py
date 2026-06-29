@@ -221,7 +221,9 @@ def analyze(input, output, duration, no_trace):
 @click.option("--no-subs", is_flag=True, help="Altyazıları devre dışı bırak")
 @click.option("--no-llm", is_flag=True, help="Kural tabanlı mod (hızlı, ücretsiz, LLM yok)")
 @click.option("--no-trace", is_flag=True, help="trace.moe analizini devre dışı bırak (hızlı mod)")
-def edit(input, music, duration, output, language, no_subs, no_llm, no_trace):
+@click.option("--threads", default=2, type=int, help="FFmpeg thread sayısı (CPU render hızı)")
+@click.option("--no-hwaccel", is_flag=True, help="Donanım ivmesini devre dışı bırak")
+def edit(input, music, duration, output, language, no_subs, no_llm, no_trace, threads, no_hwaccel):
     """Create a Shorts video from source video and music."""
     video_path = Path(input)
     if not video_path.exists():
@@ -326,12 +328,14 @@ def edit(input, music, duration, output, language, no_subs, no_llm, no_trace):
             console.print(f"[green]✓ Altyazılar oluşturuldu: {srt_path}, {ass_path}[/green]")
 
         from editor.renderer import render_shorts
-        console.print("[blue]→ Video render ediliyor...[/blue]")
+        console.print(f"[blue]→ Video render ediliyor... (threads={threads}, hwaccel={not no_hwaccel})[/blue]")
         result = render_shorts(
             timeline_data, output,
             music_path=str(music_path) if music_path else None,
             subtitle_path=srt_path if not no_subs else None,
             use_llm=not no_llm,
+            threads=threads,
+            hwaccel=not no_hwaccel,
         )
 
         console.print(f"[green]✓ Shorts videosu oluşturuldu: {result}[/green]")
@@ -402,17 +406,18 @@ def validate():
 
     console.print("\n[bold]Python Paketleri:[/bold]")
     pkgs = [
-        ("opencv-python-headless", "pip install opencv-python-headless"),
-        ("librosa", "pip install librosa"),
-        ("click", "pip install click"),
-        ("pyyaml", "pip install pyyaml"),
-        ("rich", "pip install rich"),
-        ("numpy", "pip install numpy"),
-        ("openai", "pip install openai"),
+        ("opencv-python-headless", "cv2", "pip install opencv-python-headless"),
+        ("librosa", "librosa", "pip install librosa"),
+        ("click", "click", "pip install click"),
+        ("pyyaml", "yaml", "pip install pyyaml"),
+        ("rich", "rich", "pip install rich"),
+        ("numpy", "numpy", "pip install numpy"),
+        ("openai", "openai", "pip install openai"),
+        ("requests", "requests", "pip install requests"),
     ]
-    for name, hint in pkgs:
+    for name, import_name, hint in pkgs:
         try:
-            __import__(name.replace("-", "_").replace(".", "_"))
+            __import__(import_name)
             console.print(f"  [green]✓ {name}[/green]")
         except ImportError:
             console.print(f"  [red]✗ {name} bulunamadı[/red]")

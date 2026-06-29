@@ -157,24 +157,21 @@ def _srt_time(seconds: float) -> str:
 
 
 def generate_ass_style_block() -> str:
-    """
-    ASS formatı için stil bloğu üretir.
-
-    Returns:
-        ASS stil tanımı
-    """
     return (
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
         "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
         "Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        "Style: TopCaption, Arial, 28, &H00FFFFFF, &H000000FF, "
+        "Style: TopCaption, Arial, 18, &H00FFFFFF, &H000000FF, "
         "&H00000000, &H80000000, -1, 0, 0, 0, "
-        "100, 100, 0, 0, 1, 2, 1, 8, 10, 10, 40, 1\n"
-        "Style: BottomCaption, Arial, 24, &H00FFFFFF, &H000000FF, "
+        "100, 100, 0, 0, 1, 2.5, 1.5, 8, 10, 10, 30, 1\n"
+        "Style: BottomCaption, Arial, 16, &H00FFFFFF, &H000000FF, "
         "&H00000000, &H80000000, -1, 0, 0, 0, "
-        "100, 100, 0, 0, 1, 2, 1, 2, 10, 10, 40, 1\n"
+        "100, 100, 0, 0, 1, 2.5, 1.5, 2, 10, 10, 30, 1\n"
+        "Style: KeyMoment, Arial, 20, &H00FFD700, &H00000000, "
+        "&H00000000, &H80000000, -1, 0, 0, 0, "
+        "100, 100, 0, 0, 1, 3, 2, 2, 10, 10, 50, 1\n"
     )
 
 
@@ -201,12 +198,18 @@ def generate_ass(clips: List[Dict], global_offset: float = 0.0) -> str:
     for clip in clips:
         duration = clip.get("duration", 3)
         captions = clip.get("captions", [])
+        is_key = clip.get("is_key_moment", False)
 
         for caption in captions:
             start = running_time + caption.get("start", 0)
             end = running_time + caption.get("end", duration)
             text = caption.get("text", "")
-            style = "TopCaption" if caption.get("start", 0) == 0.0 else "BottomCaption"
+            if is_key:
+                style = "KeyMoment"
+            elif caption.get("start", 0) == 0.0:
+                style = "TopCaption"
+            else:
+                style = "BottomCaption"
 
             ass_text = text.replace("{", "\\{").replace("}", "\\}")
             output.append(

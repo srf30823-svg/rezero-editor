@@ -1,4 +1,4 @@
-"""FFmpeg-based render engine with Ken Burns, xfade transitions, color grading."""
+"""FFmpeg render engine: crop pipeline, Ken Burns x/y center, 16 geçiş, hwaccel, face-crop."""
 import subprocess
 import json
 import tempfile
@@ -19,24 +19,57 @@ FPS = 30
 WIDTH = 480
 HEIGHT = 854
 
-XFADE_MAP = {
-    ("action", "action"): "fade",
-    ("action", "dialogue"): "slideleft",
+CINEMATIC_XFADE = {
+    ("action", "action"): "wipeleft",
+    ("action", "dialogue"): "fade",
     ("action", "emotional"): "fade",
-    ("dialogue", "action"): "dissolve",
+    ("action", "atmospheric"): "smoothleft",
+    ("dialogue", "action"): "wipeleft",
     ("dialogue", "dialogue"): "dissolve",
-    ("dialogue", "emotional"): "fade",
-    ("emotional", "action"): "fade",
-    ("emotional", "emotional"): "dissolve",
+    ("dialogue", "emotional"): "smoothleft",
+    ("dialogue", "atmospheric"): "fade",
+    ("emotional", "action"): "wipeup",
     ("emotional", "dialogue"): "fade",
+    ("emotional", "emotional"): "dissolve",
+    ("emotional", "atmospheric"): "fade",
+    ("atmospheric", "action"): "fade",
+    ("atmospheric", "dialogue"): "dissolve",
+    ("atmospheric", "emotional"): "fade",
+    ("atmospheric", "atmospheric"): "dissolve",
 }
 
 COLOR_GRADE_MAP = {
     "action": "eq=saturation=1.4:contrast=1.15:brightness=0.03",
-    "emotional": "eq=saturation=1.1:contrast=1.0:brightness=0.08",
+    "emotional": "eq=saturation=1.1:contrast=1.0:brightness=0.08:colorbalance=rh=0.03",
     "dialogue": "eq=saturation=1.0:contrast=1.0:brightness=0.0",
     "atmospheric": "eq=saturation=0.8:contrast=1.2:brightness=-0.05",
 }
+
+
+def _detect_hwaccel() -> List[str]:
+    """Auto-detect best available hardware acceleration (verified working)."""
+    try:
+        r = subprocess.run(["ffmpeg", "-hwaccels"], capture_output=True, text=True, timeout=5)
+        available = r.stdout.lower()
+        for accel in ["cuda", "vaapi", "videotoolbox", "d3d12va"]:
+            if accel in available:
+                try:
+                    test = subprocess.run(
+                        ["ffmpeg", "-hwaccel", accel, "-f", "lavfi", "-i", "color=c=red:s=32x32:d=0.1",
+                         "-f", "null", "-", "-y"],
+                        capture_output=True, timeout=10
+                    )
+                    if test.returncode == 0:
+                        opts = ["-hwaccel", accel]
+                        if accel == "cuda":
+                            opts.append("-hwaccel_output_format")
+                            opts.append("cuda")
+                        return opts
+                except Exception:
+                    continue
+    except Exception:
+        pass
+    return []
 
 
 def render_shorts(timeline: Union[dict, str], output_path: str,
@@ -44,7 +77,9 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
                   subtitle_path: Optional[str] = None,
                   preserve_dialogue: bool = True,
                   use_llm: bool = True,
-                  beat_times: Optional[List[float]] = None) -> str:
+                  beat_times: Optional[List[float]] = None,
+                  threads: int = 2,
+                  hwaccel: bool = True) -> str:
     if isinstance(timeline, (str, Path)):
         p = Path(timeline)
         if not p.exists():
@@ -74,6 +109,10 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
         music_path = select_music(mood)
         console.print(f"[cyan]♪ Otomatik müzik seçildi ({mood}): {Path(music_path).name}[/cyan]")
 
+    hwaccel_opts = _detect_hwaccel() if hwaccel else []
+    if hwaccel_opts:
+        console.print(f"[green]✓ HW ivme {hwaccel_opts[1]} kullanılıyor[/green]")
+
     output_dir = Path(output_path).parent
     if output_dir and not output_dir.exists():
         output_dir.mkdir(exist_ok=True, parents=True)
@@ -85,7 +124,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
         durations = []
         scene_types = []
         for i, clip in enumerate(clips):
-            p, dur = _render_clip(clip, i, temp_dir)
+            p, dur = _render_clip(clip, i, temp_dir, hwaccel_opts, threads)
             clip_paths.append(p)
             durations.append(dur)
             scene_types.append(clip.get("scene_type", "dialogue"))
@@ -95,7 +134,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
             shutil.copy(clip_paths[0], merged)
         else:
             merged = temp_dir / "merged.mp4"
-            _concat_xfade(clip_paths, durations, merged, scene_types=scene_types)
+            _concat_xfade(clip_paths, durations, merged, scene_types=scene_types, threads=threads)
 
         current = merged
 
@@ -107,6 +146,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
                 "-c:v", "libx264", "-pix_fmt", "yuv420p",
                 "-c:a", "copy",
                 "-preset", "fast", "-crf", "23",
+                "-threads", str(threads),
                 "-y", str(subtitled),
             ]
             _run_ffmpeg(sub_cmd, "Altyazı yakma")
@@ -132,6 +172,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
                     "[0:a]volume=3.0[v];[1:a]volume=0.35[m];[v][m]amix=inputs=2:duration=first[a]",
                     "-map", "0:v", "-map", "[a]",
                     "-c:v", "copy", "-c:a", "aac",
+                    "-threads", str(threads),
                     "-y", str(mixed),
                 ]
                 _run_ffmpeg(audio_cmd, "Ses karıştırma")
@@ -145,9 +186,8 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
     return output_path
 
 
-def _render_clip(clip: dict, index: int, temp_dir: Path) -> tuple:
-    """Render a single clip with Ken Burns zoom and color grading.
-    Returns (output_path, actual_duration)."""
+def _render_clip(clip: dict, index: int, temp_dir: Path,
+                 hwaccel_opts: Optional[List[str]] = None, threads: int = 2) -> tuple:
     source = clip.get("source", "")
     if not source or not Path(source).exists():
         raise FileNotFoundError(f"Kaynak dosya bulunamadı: {source}")
@@ -158,23 +198,45 @@ def _render_clip(clip: dict, index: int, temp_dir: Path) -> tuple:
         raise ValueError(f"Geçersiz süre: {duration}")
 
     scene_type = clip.get("scene_type", "dialogue")
+    face_data = clip.get("faces", [])
+    has_faces = clip.get("has_faces", False) and len(face_data) > 0
     output_path = str(temp_dir / f"clip_{index:04d}.mp4")
+
+    hwaccel_opts = hwaccel_opts or []
 
     filters = []
 
-    # Ken Burns zoom (alternate in/out) — outputs at WIDTHxHEIGHT directly
+    # Face-aware crop: center on detected face if available
+    if has_faces:
+        face = face_data[0]
+        cx = face["x"] + face["w"] // 2
+        cy = face["y"] + face["h"] // 2
+        crop_w, crop_h = 480, 854
+        filters.append(
+            f"crop={crop_w}:{crop_h}:{cx - crop_w//2}:{cy - crop_h//2}"
+        )
+    else:
+        # Smart crop: take center 480x854 from source maintaining aspect ratio
+        filters.append(
+            f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={WIDTH}:{HEIGHT}"
+        )
+
+    # Ken Burns zoom with center tracking
     nframes = int(duration * FPS)
     if nframes < 2:
         nframes = 2
     speed = 0.0006
     if index % 2 == 0:
-        zoom_end = 1.0 + (speed * nframes)
         zoom_expr = f"if(eq(on,1),1.0,zoom+{speed})"
     else:
-        zoom_end = 1.08 - (speed * nframes)
         zoom_expr = f"if(eq(on,1),1.08,zoom-{speed})"
+
+    # Center tracking: keep zoom centered on middle of frame
+    x_expr = "iw/2 - (iw/zoom)/2"
+    y_expr = "ih/2 - (ih/zoom)/2"
     filters.append(
-        f"zoompan=z='{zoom_expr}':d={nframes}:fps={FPS}:s={WIDTH}x{HEIGHT}"
+        f"zoompan=z='{zoom_expr}':x='{x_expr}':y='{y_expr}':d={nframes}:fps={FPS}:s={WIDTH}x{HEIGHT}"
     )
 
     # Color grading
@@ -184,20 +246,14 @@ def _render_clip(clip: dict, index: int, temp_dir: Path) -> tuple:
 
     vf = ",".join(filters)
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-ss", str(start),
-        "-i", source,
-        "-t", str(duration),
-        "-vf", vf,
-        "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "26",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-ac", "2",
-        output_path,
-    ]
+    cmd = ["ffmpeg", "-y"]
+    cmd.extend(hwaccel_opts)
+    cmd.extend(["-ss", str(start), "-i", source])
+    cmd.extend(["-t", str(duration), "-vf", vf])
+    cmd.extend(["-c:v", "libx264", "-preset", "ultrafast", "-crf", "26"])
+    cmd.extend(["-threads", str(threads)])
+    cmd.extend(["-c:a", "aac", "-b:a", "192k", "-ac", "2"])
+    cmd.append(output_path)
 
     _run_ffmpeg(cmd, f"Klip {index} render")
 
@@ -206,8 +262,7 @@ def _render_clip(clip: dict, index: int, temp_dir: Path) -> tuple:
 
 def _concat_xfade(clip_paths: List[str], durations: List[float],
                   output_path: Path, transition_dur: float = TRANSITION_DURATION,
-                  scene_types: Optional[List[str]] = None):
-    """Chain clips with xfade + acrossfade transitions (pair-wise)."""
+                  scene_types: Optional[List[str]] = None, threads: int = 2):
     n = len(clip_paths)
     if n == 1:
         shutil.copy(clip_paths[0], output_path)
@@ -240,7 +295,7 @@ def _concat_xfade(clip_paths: List[str], durations: List[float],
             if offset < 0:
                 offset = 0
 
-            trans = XFADE_MAP.get((current_st[i], current_st[i + 1]), "fade")
+            trans = CINEMATIC_XFADE.get((current_st[i], current_st[i + 1]), "fade")
             fg = (
                 f"[0:v][1:v]xfade=transition={trans}"
                 f":duration={transition_dur}:offset={offset:.2f}[vout];"
@@ -253,6 +308,7 @@ def _concat_xfade(clip_paths: List[str], durations: List[float],
                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
                 "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k",
+                "-threads", str(threads),
                 str(out),
             ]
             _run_ffmpeg(cmd, f"Xfade {i}+{i+1}")
@@ -270,7 +326,6 @@ def _concat_xfade(clip_paths: List[str], durations: List[float],
 
 
 def _run_ffmpeg(cmd: List[str], step_name: str = "FFmpeg"):
-    """Run FFmpeg and raise on error."""
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
@@ -282,18 +337,3 @@ def _run_ffmpeg(cmd: List[str], step_name: str = "FFmpeg"):
 
 def _escape_path(path: str) -> str:
     return path.replace("\\", "/").replace(":", "\\:")
-
-
-def convert_to_vertical(input_path: str, output_path: str) -> str:
-    if not Path(input_path).exists():
-        raise FileNotFoundError(f"Giriş dosyası bulunamadı: {input_path}")
-    Path(output_path).parent.mkdir(exist_ok=True, parents=True)
-    cmd = [
-        "ffmpeg", "-i", input_path,
-        "-vf", f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease,"
-               f"pad={WIDTH}:{HEIGHT}:(ow-iw)/2:(oh-ih)/2",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
-        "-y", output_path,
-    ]
-    _run_ffmpeg(cmd, "Dikey format dönüşümü")
-    return output_path
