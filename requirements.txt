@@ -1,12 +1,26 @@
-opencv-python-headless>=4.9.0
+# RE:ZERO Video Edit Pipeline v2.0 — OWL Architecture
+# Termux/Ubuntu bağımlılıkları
+
+# Web
+requests>=2.31.0
+
+# Ses analizi
 librosa>=0.10.0
-soundfile>=0.12.1
-ffmpeg-python>=0.2.0
-numpy>=1.26.0
+numpy>=1.24.0
+
+# CLI
 click>=8.1.0
+rich>=13.0.0
+
+# YAML
 pyyaml>=6.0.1
-rich>=13.7.0
-scenedetect>=0.6.3
-pillow>=10.2.0
-pytest>=8.0.0
-openai>=1.0.0
+
+# Görüntü işleme
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+
+# Veri
+jsonschema>=4.19.0
+
+# Opsiyonel: Daha iyi beat tespiti
+# madmom>=0.16.1  # Termux'da derlenmesi zor olabilir
