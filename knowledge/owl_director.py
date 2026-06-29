@@ -107,6 +107,8 @@ def _get_client():
     """Create OpenAI client pointing at OpenRouter with 10s timeout."""
     api_key = os.environ.get("OPENROUTER_API_KEY") or _read_key_from_config()
     if not api_key:
+        print("[Owl Director] API anahtari bulunamadi. OPENROUTER_API_KEY env var'ini ayarlayin "
+              "veya config.yaml'daki openrouter_key alanini doldurun.")
         return None
 
     try:
@@ -117,6 +119,7 @@ def _get_client():
             timeout=10.0,
         )
     except ImportError:
+        print("[Owl Director] openai paketi yuklu degil. 'pip install openai' ile kurun.")
         return None
 
 
@@ -160,7 +163,10 @@ Use your tools to:
 3. Set transitions between clips (set_transitions)
 """
 
-    messages = [{"role": "user", "content": user_msg}]
+    messages = [
+        {"role": "system", "content": RE_ZERO_SYSTEM},
+        {"role": "user", "content": user_msg},
+    ]
     edit_plan = {
         "ordered_clip_ids": list(range(len(clips))),
         "transitions": {},
@@ -177,6 +183,7 @@ Use your tools to:
                 tools=EDIT_TOOLS,
                 tool_choice="auto",
                 max_tokens=800,
+                timeout=15.0,
             )
 
             msg = response.choices[0].message
@@ -215,7 +222,17 @@ Use your tools to:
                 break
 
     except Exception as e:
-        print(f"[Owl Director] Hata: {e}, fallback kullaniliyor")
+        err_type = type(e).__name__
+        err_msg = str(e)[:150]
+        if "auth" in err_msg.lower() or "unauthorized" in err_msg.lower() or "401" in err_msg:
+            reason = "API anahtari gecersiz"
+        elif "timeout" in err_msg.lower() or "connect" in err_msg.lower():
+            reason = "baglanti zamani asimi (OpenRouter'a erisilemiyor)"
+        elif "model" in err_msg.lower() and "not" in err_msg.lower():
+            reason = "openrouter/owl-alpha modeli kullanilamiyor"
+        else:
+            reason = f"API hatasi ({err_type})"
+        print(f"[Owl Director] {reason}")
         return _fallback_edit_plan(clips, available_music, target_duration)
 
     return edit_plan
