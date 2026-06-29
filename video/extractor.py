@@ -142,19 +142,17 @@ def get_video_info(video_path: str) -> Dict:
     }
 
 
-def extract_clip(video_path: str, start_time: float, end_time: float,
-                 output_path: str) -> str:
+def extract_clip(
+    video_path: str,
+    start_time: float,
+    end_time: float,
+    output_path: str,
+    target_duration: float = None
+) -> str:
     """
-    Extract a clip from a video.
+    Extract a clip with original audio preserved and vertical format.
 
-    Args:
-        video_path: Path to the video file.
-        start_time: Start time in seconds.
-        end_time: End time in seconds.
-        output_path: Output clip file path.
-
-    Returns:
-        Path to the extracted clip.
+    Uses fast seek (-ss before -i) and scales to 1080x1920 9:16.
     """
     if not Path(video_path).exists():
         raise FileNotFoundError(f"Video dosyası bulunamadı: {video_path}")
@@ -162,17 +160,24 @@ def extract_clip(video_path: str, start_time: float, end_time: float,
     if start_time < 0 or end_time <= start_time:
         raise ValueError(f"Geçersiz klip zaman aralığı: {start_time}-{end_time}")
 
-    duration = end_time - start_time
+    duration = target_duration or (end_time - start_time)
     output_dir = Path(output_path).parent
     output_dir.mkdir(exist_ok=True, parents=True)
 
     cmd = [
-        "ffmpeg",
+        "ffmpeg", "-y",
         "-ss", str(start_time),
         "-i", video_path,
         "-t", str(duration),
-        "-c:v", "libx264", "-c:a", "aac",
-        "-y", output_path,
+        "-vf", "scale=1080:1920:force_original_aspect_ratio=decrease,"
+               "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black",
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-ac", "2",
+        output_path
     ]
 
     _run_ffmpeg(cmd)

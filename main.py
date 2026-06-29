@@ -9,18 +9,8 @@ from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 
-from video.extractor import extract_frames, extract_audio, get_video_info
-from video.analyzer import detect_scenes
-from video.scorer import score_scenes
-from video.selector import select_clips
-from audio.beat_detector import detect_beats
-from audio.sync_engine import sync_to_beats
-from editor.effects import apply_effects
-from editor.timeline import create_timeline
-from editor.renderer import render_shorts
-from editor.captions import generate_captions, generate_srt, generate_ass
 from video.scanner import scan_library, get_music_tracks, season_to_arc
-from audio.matcher import match_music_to_arc
+from video.deep_analyzer import deep_analyze_video
 
 console = Console()
 
@@ -79,37 +69,54 @@ def _parse_episode_range(range_str: str, available: dict) -> list:
 
 
 def _generate_shorts(video_path: str, music_path: str, output_path: str,
-                     target_duration: float) -> None:
-    """Generate a shorts video from a single episode."""
-    from video.extractor import extract_frames, extract_audio
-    from video.analyzer import detect_scenes
-    from video.scorer import score_scenes
+                     target_duration: float, use_llm: bool = True) -> None:
+    """Generate a shorts video from a single episode using deep analysis."""
     from video.selector import select_clips
-    from audio.beat_detector import detect_beats
-    from audio.sync_engine import sync_to_beats
     from editor.effects import apply_effects
-    from editor.captions import generate_captions, generate_srt, generate_ass
     from editor.timeline import create_timeline
     from editor.renderer import render_shorts
+    from editor.captions import generate_captions, generate_srt, generate_ass
 
-    frames = extract_frames(video_path)
-    if not frames:
-        raise RuntimeError("Videodan çerçeve çıkarılamadı")
+    console.print("[blue]→ Derin video analizi basliyor...[/blue]")
+    analysis = deep_analyze_video(video_path)
+    scene_count = analysis.get("total_scenes", 0)
+    console.print(f"[green]✓ {scene_count} sahne tespit edildi[/green]")
 
-    scenes = detect_scenes(frames)
-    if not scenes:
-        raise RuntimeError("Hiç sahne tespit edilemedi")
-
-    scored = score_scenes(scenes)
-    clips = select_clips(scored, target_duration=target_duration)
+    clips = select_clips(
+        analysis.get("scenes", []),
+        target_duration=target_duration,
+    )
     if not clips:
         raise RuntimeError("Hiç klip seçilemedi")
 
-    beat_data = detect_beats(music_path)
-    synced = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
-    for clip in synced:
+    for c in clips:
+        c["source"] = video_path
+        c["start_time"] = c.get("start", 0.0)
+        c["duration"] = c.get("actual_duration", c.get("duration", 3.0))
+
+    console.print(f"[green]✓ {len(clips)} klip seçildi[/green]")
+
+    if music_path:
+        try:
+            from audio.beat_detector import detect_beats
+            from audio.sync_engine import sync_to_beats
+            console.print("[blue]→ Müzik beat'leri tespit ediliyor...[/blue]")
+            beat_data = detect_beats(music_path)
+            if beat_data.get("bpm", 0) > 0:
+                console.print(f"[green]✓ BPM: {beat_data['bpm']:.1f}[/green]")
+                clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
+            else:
+                console.print("[yellow]⚠ Beat tespit edilemedi, senkronizasyon atlandi[/yellow]")
+        except ImportError:
+            console.print("[yellow]⚠ librosa paketi eksik, beat senkronizasyonu atlandi[/yellow]")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Beat tespiti basarisiz: {e}, senkronizasyon atlandi[/yellow]")
+
+    console.print("[blue]→ Efektler uygulaniyor...[/blue]")
+    for clip in clips:
         apply_effects(clip)
-    captioned = generate_captions(synced)
+
+    captioned = generate_captions(clips)
 
     timeline = create_timeline(captioned)
     timeline_data = timeline.to_json()
@@ -130,13 +137,18 @@ def _generate_shorts(video_path: str, music_path: str, output_path: str,
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(ass_content)
 
-    render_shorts(timeline_data, output_path, music_path=music_path, subtitle_path=srt_path)
+    console.print("[blue]→ Video render ediliyor...[/blue]")
+    render_shorts(
+        timeline_data, output_path,
+        music_path=music_path,
+        subtitle_path=srt_path,
+        use_llm=use_llm,
+    )
 
 
 def _extract_frames_safe(video_path: str) -> list:
     """Safely extract frames, returning empty list on error."""
     try:
-        from video.extractor import extract_frames
         return extract_frames(video_path)
     except Exception:
         return []
@@ -153,7 +165,7 @@ def cli():
 @click.option("--output", "-o", default="analysis.json", help="Analiz sonucu çıkış dosyası")
 @click.option("--duration", "-d", default=None, help="Hedef klip süresi (saniye)")
 def analyze(input, output, duration):
-    """Analyze a video file and detect/select the best scenes."""
+    """Deep-analyze a video and cache the results."""
     video_path = Path(input)
     if not video_path.exists():
         console.print(f"[red]Hata: '{input}' dosyası bulunamadı[/red]")
@@ -162,48 +174,38 @@ def analyze(input, output, duration):
     config = _load_config()
     target_duration = float(duration) if duration else config.get("output", {}).get("duration_seconds", 59)
 
-    console.print(Panel("Video analizi başlatılıyor...", title="RE:ZERO Editor"))
+    console.print(Panel("Derin video analizi başlatılıyor...", title="RE:ZERO Editor"))
     console.print(f"[yellow]Video: {input}[/yellow]")
-    console.print(f"[yellow]Hedef süre: {target_duration}s[/yellow]")
 
     try:
-        frames = extract_frames(str(video_path))
-        if not frames:
-            raise RuntimeError("Videodan çerçeve çıkarılamadı; dosya bozuk veya desteklenmiyor olabilir")
+        analysis = deep_analyze_video(str(video_path))
 
-        scenes = detect_scenes(frames)
-        if not scenes:
-            raise RuntimeError("Hiç sahne tespit edilemedi")
-
-        scored_scenes = score_scenes(scenes)
-        selected_clips = select_clips(scored_scenes, target_duration=target_duration)
-        if not selected_clips:
-            console.print("[yellow]⚠ Eşik değeri geçen sahne bulunamadı, tüm sahneler analiz edildi[/yellow]")
-            selected_clips = select_clips(
-                scored_scenes,
-                target_duration=target_duration,
-                min_duration=0.5,
-            )
+        from video.selector import select_clips
+        clips = select_clips(
+            analysis.get("scenes", []),
+            target_duration=target_duration,
+        )
 
         result = {
             "input": str(video_path),
             "target_duration": target_duration,
-            "total_frames": len(frames),
-            "total_scenes": len(scenes),
-            "selected_clips": len(selected_clips),
-            "scenes": scored_scenes,
-            "clips": selected_clips,
+            "duration": analysis.get("duration", 0),
+            "total_scenes": analysis.get("total_scenes", 0),
+            "selected_clips": len(clips),
+            "scenes": analysis.get("scenes", []),
+            "clips": clips,
         }
 
-        output_dir = Path(output).parent
+        output_path = Path(output)
+        output_dir = output_path.parent
         if output_dir and not output_dir.exists():
             output_dir.mkdir(exist_ok=True, parents=True)
 
-        with open(output, "w", encoding="utf-8") as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(result, f, indent=2, ensure_ascii=False)
 
         console.print(f"[green]✓ Analiz tamamlandı: {output}[/green]")
-        console.print(f"[green]  {len(selected_clips)} klip seçildi[/green]")
+        console.print(f"[green]  {len(clips)} klip seçildi[/green]")
 
     except Exception as e:
         _handle_error("Video analizi", e)
@@ -216,16 +218,15 @@ def analyze(input, output, duration):
 @click.option("--output", "-o", default="output/shorts.mp4", help="Çıkış dosyası")
 @click.option("--language", "-l", default="tr", help="Altyazı dili (tr/en)")
 @click.option("--no-subs", is_flag=True, help="Altyazıları devre dışı bırak")
-def edit(input, music, duration, output, language, no_subs):
+@click.option("--no-llm", is_flag=True, help="Kural tabanlı mod (hızlı, ücretsiz, LLM yok)")
+def edit(input, music, duration, output, language, no_subs, no_llm):
     """Create a Shorts video from source video and music."""
     video_path = Path(input)
-
     if not video_path.exists():
         console.print(f"[red]Hata: Video '{input}' dosyası bulunamadı[/red]")
         raise SystemExit(1)
 
     music_path = Path(music) if music else None
-
     if music_path and not music_path.exists():
         console.print(f"[red]Hata: Müzik '{music}' dosyası bulunamadı[/red]")
         raise SystemExit(1)
@@ -242,45 +243,60 @@ def edit(input, music, duration, output, language, no_subs):
     console.print(f"[yellow]Süre: {target_duration}s[/yellow]")
     console.print(f"[yellow]Altyazı: {'Açık' if not no_subs else 'Kapalı'} ({language})[/yellow]")
 
+    if no_llm:
+        console.print("[yellow]⚡ Kural tabanlı mod (LLM devre dışı)[/yellow]")
+    else:
+        console.print("[cyan]🦉 Owl Alpha Director: Aktif[/cyan]")
+
     try:
-        console.print("[blue]→ Video analiz ediliyor...[/blue]")
-        frames = extract_frames(str(video_path))
-        if not frames:
-            raise RuntimeError("Videodan çerçeve çıkarılamadı; dosya bozuk veya desteklenmiyor olabilir")
+        analysis = deep_analyze_video(str(video_path))
+        scene_count = analysis.get("total_scenes", 0)
+        console.print(f"[green]✓ {scene_count} sahne tespit edildi[/green]")
 
-        scenes = detect_scenes(frames)
-        if not scenes:
-            raise RuntimeError("Hiç sahne tespit edilemedi")
-
-        scored = score_scenes(scenes)
-        clips = select_clips(scored, target_duration=target_duration)
+        from video.selector import select_clips
+        clips = select_clips(
+            analysis.get("scenes", []),
+            target_duration=target_duration,
+        )
         if not clips:
-            raise RuntimeError("Hiç klip seçilemedi; eşik çok yüksek veya video çok kısa olabilir")
+            raise RuntimeError("Hiç klip seçilemedi")
+
+        for c in clips:
+            c["source"] = str(video_path)
+            c["start_time"] = c.get("start", 0.0)
+            c["duration"] = c.get("actual_duration", c.get("duration", 3.0))
+
         console.print(f"[green]✓ {len(clips)} klip seçildi[/green]")
 
         if music_path:
-            console.print("[blue]→ Müzik beat'leri tespit ediliyor...[/blue]")
-            beat_data = detect_beats(str(music_path))
-            if beat_data.get("bpm", 0) <= 0:
-                console.print("[yellow]⚠ Beat tespit edilemedi, müzik sessiz veya ritimsiz olabilir[/yellow]")
-            console.print(f"[green]✓ BPM: {beat_data['bpm']:.1f}[/green]")
+            try:
+                from audio.beat_detector import detect_beats
+                from audio.sync_engine import sync_to_beats
+                console.print("[blue]→ Müzik beat'leri tespit ediliyor...[/blue]")
+                beat_data = detect_beats(str(music_path))
+                if beat_data.get("bpm", 0) > 0:
+                    console.print(f"[green]✓ BPM: {beat_data['bpm']:.1f}[/green]")
+                    clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
+                else:
+                    console.print("[yellow]⚠ Beat tespit edilemedi, senkronizasyon atlandi[/yellow]")
+            except ImportError:
+                console.print("[yellow]⚠ librosa paketi eksik, beat senkronizasyonu atlandi[/yellow]")
+            except Exception as e:
+                console.print(f"[yellow]⚠ Beat tespiti basarisiz: {e}, senkronizasyon atlandi[/yellow]")
 
-            console.print("[blue]→ Klipler beat'lere senkronize ediliyor...[/blue]")
-            synced_clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
-        else:
-            synced_clips = clips
-
-        console.print("[blue]→ Efektler uygulanıyor...[/blue]")
-        for clip in synced_clips:
+        from editor.effects import apply_effects
+        console.print("[blue]→ Efektler uygulaniyor...[/blue]")
+        for clip in clips:
             apply_effects(clip)
 
+        from editor.captions import generate_captions, generate_srt, generate_ass
         console.print("[blue]→ Altyazılar oluşturuluyor...[/blue]")
-        captioned_clips = generate_captions(synced_clips, language=language)
+        captioned_clips = generate_captions(clips, language=language)
 
+        from editor.timeline import create_timeline
         console.print("[blue]→ Timeline oluşturuluyor...[/blue]")
         timeline = create_timeline(captioned_clips)
         timeline_data = timeline.to_json()
-
         for clip_data in timeline_data["clips"]:
             clip_data["source"] = str(video_path)
 
@@ -307,11 +323,13 @@ def edit(input, music, duration, output, language, no_subs):
 
             console.print(f"[green]✓ Altyazılar oluşturuldu: {srt_path}, {ass_path}[/green]")
 
+        from editor.renderer import render_shorts
         console.print("[blue]→ Video render ediliyor...[/blue]")
         result = render_shorts(
             timeline_data, output,
             music_path=str(music_path) if music_path else None,
             subtitle_path=srt_path if not no_subs else None,
+            use_llm=not no_llm,
         )
 
         console.print(f"[green]✓ Shorts videosu oluşturuldu: {result}[/green]")
@@ -325,7 +343,8 @@ def edit(input, music, duration, output, language, no_subs):
 @click.option("--output", "-o", required=True, help="Çıkış dosyası")
 @click.option("--music", "-m", default=None, help="Arka plan müzik dosyası (opsiyonel)")
 @click.option("--subtitle", "-s", default=None, help="Altyazı dosyası (opsiyonel, SRT/ASS)")
-def export(timeline, output, music, subtitle):
+@click.option("--no-llm", is_flag=True, help="Kural tabanlı mod")
+def export(timeline, output, music, subtitle, no_llm):
     """Render a final Shorts video from a timeline file."""
     timeline_path = Path(timeline)
     if not timeline_path.exists():
@@ -344,14 +363,19 @@ def export(timeline, output, music, subtitle):
     if subtitle:
         console.print(f"[yellow]Altyazı: {subtitle}[/yellow]")
 
+    if not no_llm:
+        console.print("[cyan]🦉 Owl Alpha Director: Aktif[/cyan]")
+
     try:
         with open(timeline_path, "r", encoding="utf-8") as f:
             timeline_data = json.load(f)
 
+        from editor.renderer import render_shorts
         result = render_shorts(
             timeline_data, output,
             music_path=music,
             subtitle_path=subtitle,
+            use_llm=not no_llm,
         )
         console.print(f"[green]✓ Video oluşturuldu: {result}[/green]")
 
@@ -382,6 +406,7 @@ def validate():
         ("pyyaml", "pip install pyyaml"),
         ("rich", "pip install rich"),
         ("numpy", "pip install numpy"),
+        ("openai", "pip install openai"),
     ]
     for name, hint in pkgs:
         try:
@@ -411,62 +436,57 @@ def validate():
 
 @cli.command()
 def scan():
-    """Scan all seasons and list available episodes."""
+    """Re:Zero video kütüphanesini tarar."""
     config = _load_config()
-    input_base = config.get("paths", {}).get("input_base", "/data/data/com.termux/files/home/storage/shared/Download/rezero/input")
+    input_base = config.get("paths", {}).get(
+        "input_base",
+        "/data/data/com.termux/files/home/storage/shared/Download/rezero/input"
+    )
 
-    console.print(Panel("RE:ZERO Video Kütüphanesi:", title="Tarama"))
-
-    try:
-        library = scan_library(input_base)
-    except FileNotFoundError as e:
-        console.print(f"[red]✗ Hata: {e}[/red]")
-        console.print(f"    Kütüphane yolunu config.yaml'deki 'paths.input_base' ile ayarlayın")
-        raise SystemExit(1)
-
-    if not library:
-        console.print("[yellow]⚠ Kütüphanede video bulunamadı[/yellow]")
+    base = Path(input_base)
+    if not base.exists():
+        console.print(f"[red]Klasör bulunamadı: {base}[/red]")
         return
 
-    music_dir = config.get("paths", {}).get("music_dir", "/data/data/com.termux/files/home/storage/shared/Download/rezero/input/music")
-    try:
-        music_tracks = get_music_tracks(music_dir)
-    except FileNotFoundError:
-        music_tracks = []
+    console.print(Panel("Re:Zero Video Kütüphanesi", title="SCAN"))
 
-    console.print()
-    for season_key in sorted(library.keys()):
-        episodes = library[season_key]
-        console.print(f"{season_key}: {len(episodes)} bölüm")
-        for ep in sorted(episodes.keys())[:10]:
-            console.print(f"  E{ep:02d}.mp4")
-        if len(episodes) > 10:
-            console.print(f"  ... ve {len(episodes) - 10} daha")
+    total = 0
+    for season_dir in sorted(base.iterdir()):
+        if not season_dir.is_dir() or not season_dir.name.startswith("S"):
+            continue
+        episodes = sorted(season_dir.glob("*.mp4"))
+        if episodes:
+            console.print(f"[cyan]{season_dir.name}[/cyan]: {len(episodes)} bölüm")
+            for ep in episodes:
+                size = ep.stat().st_size / (1024 * 1024)
+                console.print(f"  {ep.name} ({size:.1f} MB)")
+            total += len(episodes)
 
-    if music_tracks:
-        console.print()
-        console.print(f"Müzik: {len(music_tracks)} parça")
-        for track in music_tracks[:5]:
-            console.print(f"  {Path(track).name}")
-        if len(music_tracks) > 5:
-            console.print(f"  ... ve {len(music_tracks) - 5} daha")
-    else:
-        console.print()
-        console.print("[yellow]⚠ Müzik dizininde parça bulunamadı[/yellow]")
+    music_dir = Path(config.get("paths", {}).get(
+        "music_dir",
+        "/data/data/com.termux/files/home/storage/shared/Download/rezero/input/music"
+    ))
+    music_files = list(music_dir.rglob("*.mp3")) if music_dir.exists() else []
+    console.print(f"\n[green]Toplam: {total} bölüm, {len(music_files)} müzik[/green]")
 
 
 @cli.command()
 @click.option("--season", "-s", required=True, type=int, help="Sezon numarası (1-5)")
 @click.option("--episodes", "-e", default=None, help="Bölüm aralığı (1-25, 1-5, veya 1-10,15)")
-@click.option("--music", "-m", default=None, help="Müzik dosyası (veya arka plan için None)")
+@click.option("--music", "-m", default=None, help="Müzik dosyası (belirtilmezse otomatik seçilir)")
 @click.option("--output-dir", "-o", default=None, help="Çıkış dizini (varsayılan: output/shorts)")
 @click.option("--duration", "-d", default=None, type=int, help="Her shorts süresi (saniye)")
-def batch(season, episodes, music, output_dir, duration):
+@click.option("--no-llm", is_flag=True, help="Kural tabanlı mod")
+def batch(season, episodes, music, output_dir, duration, no_llm):
     """Generate shorts from multiple episodes automatically."""
     config = _load_config()
 
     if not music:
-        music_dir = config.get("paths", {}).get("music_dir", "/data/data/com.termux/files/home/storage/shared/Download/rezero/input/music")
+        from audio.matcher import match_music_to_arc
+        music_dir = config.get("paths", {}).get(
+            "music_dir",
+            "/data/data/com.termux/files/home/storage/shared/Download/rezero/input/music"
+        )
         try:
             music = match_music_to_arc(season_to_arc(season), music_dir)
             console.print(f"[green]✓ Müzik otomatik seçildi: {Path(music).name}[/green]")
@@ -479,7 +499,10 @@ def batch(season, episodes, music, output_dir, duration):
     output_base = Path(output_dir) if output_dir else Path(config.get("output", {}).get("directory", "output")) / "shorts"
     output_base.mkdir(parents=True, exist_ok=True)
 
-    library = scan_library(config.get("paths", {}).get("input_base", "/data/data/com.termux/files/home/storage/shared/Download/rezero/input"))
+    library = scan_library(config.get("paths", {}).get(
+        "input_base",
+        "/data/data/com.termux/files/home/storage/shared/Download/rezero/input"
+    ))
     season_key = f"S{season:02d}"
     episodes_dict = library.get(season_key, {})
 
@@ -501,7 +524,7 @@ def batch(season, episodes, music, output_dir, duration):
 
         console.print(f"\n[blue]→ {output_name} oluşturuluyor...[/blue]")
         try:
-            _generate_shorts(episode_path, music, output_path, target_duration)
+            _generate_shorts(episode_path, music, str(output_path), target_duration, use_llm=not no_llm)
             console.print(f"[green]✓ {output_name} tamamlandı[/green]")
         except Exception as e:
             console.print(f"[red]✗ {output_name} başarısız: {e}[/red]")
@@ -511,14 +534,18 @@ def batch(season, episodes, music, output_dir, duration):
 @click.option("--season", "-s", required=True, type=int, help="Sezon numarası (1-5)")
 @click.option("--music", "-m", required=True, help="Müzik dosyası")
 @click.option("--duration", "-d", default=None, type=int, help="Çıkış videosu süresi (saniye)")
-def best(season, music, duration):
+@click.option("--no-llm", is_flag=True, help="Kural tabanlı mod")
+def best(season, music, duration, no_llm):
     """Select the best scenes from all seasons for a mega shorts."""
     config = _load_config()
     target_duration = duration or config.get("output", {}).get("duration_seconds", 59)
 
     console.print(Panel(f"Best S{season:02d} Shorts - Maksimum süre: {target_duration}s", title="Mega Shorts"))
 
-    library = scan_library(config.get("paths", {}).get("input_base", "/data/data/com.termux/files/home/storage/shared/Download/rezero/input"))
+    library = scan_library(config.get("paths", {}).get(
+        "input_base",
+        "/data/data/com.termux/files/home/storage/shared/Download/rezero/input"
+    ))
     season_key = f"S{season:02d}"
     episodes_dict = library.get(season_key, {})
 
@@ -528,83 +555,117 @@ def best(season, music, duration):
 
     console.print(f"[blue]→ {len(episodes_dict)} bölüm taranıyor...[/blue]")
 
-    all_scenes = []
+    all_analyses = []
     for ep in sorted(episodes_dict.keys()):
         episode_path = episodes_dict[ep]
         console.print(f"  E{ep:02d} ... ", end="", flush=True)
         try:
-            frames = _extract_frames_safe(episode_path)
-            if frames:
-                scenes = detect_scenes(frames)
-                if scenes:
-                    scored = score_scenes(scenes, season=season)
-                    all_scenes.extend(scored)
-                    console.print(f"[green]{len(scenes)} sahne[/green]")
-                else:
-                    console.print("[yellow]sahne yok[/yellow]")
+            analysis = deep_analyze_video(episode_path)
+            scenes = analysis.get("scenes", [])
+            if scenes:
+                all_analyses.append(analysis)
+                console.print(f"[green]{len(scenes)} sahne[/green]")
             else:
-                console.print("[yellow]boş[/yellow]")
+                console.print("[yellow]sahne yok[/yellow]")
         except Exception as e:
             console.print(f"[red]hata: {e}[/red]")
 
-    if not all_scenes:
+    if not all_analyses:
         console.print("[yellow]⚠ Hiç sahne seçilemedi[/yellow]")
         return
 
-    console.print(f"\n[blue]→ {len(all_scenes)} sahne analiz edildi[/blue]")
-    console.print(f"[blue]→ En iyi {target_duration}s için klipler seçiliyor...[/blue]")
-
-    clips = select_clips(all_scenes, target_duration=target_duration)
+    from video.selector import select_clips_from_episodes
+    clips = select_clips_from_episodes(all_analyses, target_duration=target_duration)
 
     if not clips:
-        console.print("[yellow]⚠ Eşik çok yüksek, daha düşük bir değer deneyin[/yellow]")
+        console.print("[yellow]⚠ Hiç klip seçilemedi[/yellow]")
         return
 
     console.print(f"[green]✓ {len(clips)} klip seçildi[/green]")
 
-    output_path = Path(config.get("paths", {}).get("output_dir", "output/shorts")) / f"S{season:02d}_best_shorts.mp4"
-    console.print(f"[blue]→ Video render ediliyor...[/blue]")
+    for c in clips:
+        c["start_time"] = c.get("start", 0.0)
+        c["duration"] = c.get("actual_duration", c.get("duration", 3.0))
 
-    timeline = create_timeline(clips)
-    timeline_data = timeline.to_json()
-    for clip_data in timeline_data["clips"]:
-        clip_data["source"] = str(Path(episodes_dict[sorted(episodes_dict.keys())[0]]).parent.parent)
+    try:
+        from audio.beat_detector import detect_beats
+        from audio.sync_engine import sync_to_beats
+        beat_data = detect_beats(music)
+        if beat_data.get("bpm", 0) > 0:
+            clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
+    except ImportError:
+        console.print("[yellow]⚠ librosa paketi eksik, beat senkronizasyonu atlandi[/yellow]")
+    except Exception as e:
+        console.print(f"[yellow]⚠ Beat tespiti basarisiz: {e}, senkronizasyon atlandi[/yellow]")
 
-    beat_data = detect_beats(music)
-    synced_clips = sync_to_beats(clips, beat_data["beat_times"], beat_data["drop_times"])
-    for clip in synced_clips:
+    from editor.effects import apply_effects
+    for clip in clips:
         apply_effects(clip)
-    captioned_clips = generate_captions(synced_clips)
 
-    output_dir = Path(output_path).parent
-    if output_dir and not output_dir.exists():
-        output_dir.mkdir(exist_ok=True, parents=True)
+    from editor.captions import generate_captions, generate_srt, generate_ass
+    captioned_clips = generate_captions(clips)
 
-    output_stem = Path(output_path).stem
-    timeline_path = f"{output_dir}/{output_stem}_timeline.json"
+    from editor.timeline import create_timeline
+    timeline = create_timeline(captioned_clips)
+    timeline_data = timeline.to_json()
+
+    output_path = Path(config.get("paths", {}).get(
+        "output_dir",
+        "/data/data/com.termux/files/home/storage/shared/Download/rezero/output/shorts"
+    )) / f"S{season:02d}_best_shorts.mp4"
+    output_dir = output_path.parent
+    output_dir.mkdir(exist_ok=True, parents=True)
+
+    output_stem = output_path.stem
+    timeline_path = str(output_dir / f"{output_stem}_timeline.json")
     with open(timeline_path, "w", encoding="utf-8") as f:
         json.dump(timeline_data, f, indent=2, ensure_ascii=False)
 
-    srt_path = None
     srt_content = generate_srt(captioned_clips)
-    srt_path = f"{output_dir}/{output_stem}.srt"
+    srt_path = str(output_dir / f"{output_stem}.srt")
     with open(srt_path, "w", encoding="utf-8") as f:
         f.write(srt_content)
 
     ass_content = generate_ass(captioned_clips)
-    ass_path = f"{output_dir}/{output_stem}.ass"
+    ass_path = str(output_dir / f"{output_stem}.ass")
     with open(ass_path, "w", encoding="utf-8") as f:
         f.write(ass_content)
 
-    console.print(f"[green]✓ Altyazılar oluşturuldu: {srt_path}, {ass_path}[/green]")
+    console.print(f"[green]✓ Altyazılar oluşturuldu[/green]")
 
+    from editor.renderer import render_shorts
     result = render_shorts(
         timeline_data, str(output_path),
         music_path=music,
         subtitle_path=srt_path,
+        use_llm=not no_llm,
     )
-
     console.print(f"[green]✓ Best shorts oluşturuldu: {result}[/green]")
+
+
+@cli.command()
+@click.option("--clear", is_flag=True, help="Tüm cache'i temizle")
+@click.option("--video", "-i", default=None, help="Belirli bir video için cache temizle")
+@click.option("--info", is_flag=True, help="Cache durumunu göster")
+def cache(clear, video, info):
+    """Yönet video analiz cache'ini."""
+    from video.cache import clear_cache, CACHE_DIR
+
+    if clear:
+        count = clear_cache(video)
+        if video:
+            console.print(f"[green]✓ Cache temizlendi: {Path(video).name}[/green]")
+        else:
+            console.print(f"[green]✓ {count} cache dosyası temizlendi[/green]")
+    elif info:
+        CACHE_DIR.mkdir(exist_ok=True)
+        files = list(CACHE_DIR.glob("*.json"))
+        total_bytes = sum(f.stat().st_size for f in files)
+        console.print(f"[cyan]Cache: {len(files)} dosya, {total_bytes / 1024:.1f} KB[/cyan]")
+        for f in files:
+            console.print(f"  {f.name}")
+    else:
+        console.print("[yellow]Kullanım: --clear (tümünü temizle) | --info (durum) | --clear --video video.mp4[/yellow]")
 
 
 if __name__ == "__main__":

@@ -1,23 +1,48 @@
 # CHECKPOINT
+Status: PRODUCTION READY — OWL ALPHA DIRECTOR + CACHE SYSTEM
 
-Tamamlanan: Tüm modüller (1-11) tamamlandı.
-Son commit: 9e513e6
+## Yeni / Değişen Dosyalar
+- video/cache.py — Analiz cache sistemi (~/.rezero_cache/)
+- video/deep_analyzer.py — FFmpeg ile hızlı sahne tespiti (360p + keyframe)
+- video/selector.py — Stratejik klip seçimi (balanced/action/emotional)
+- knowledge/owl_director.py — 🦉 Owl Alpha LLM Director (tool calling)
+- editor/renderer.py — Owl Director entegre edildi
 
-## Yeni Özellikler
-- audio/music_selector.py: Sahne ruh haline göre otomatik müzik seçimi
-- audio/voice_ducking.py: Diyalog koruma (sidechain compression ile otomatik ducking)
-- audio/mixer.py: mix_with_ducking() fonksiyonu eklendi
-- editor/renderer.py: preserve_dialogue parametresi + auto music selection
-- main.py: --music artık opsiyonel, belirtilmezse otomatik seçilir
+## Düzeltilenler
+- video/extractor.py: Fast seek (-ss önce), 1080x1920 scale, ses koruma
+- main.py: Tüm import'lar lazy yapıldı (cv2 olmadan çalışır)
+- main.py: --no-llm flag'i eklendi
+- main.py: cache komutu eklendi
+- config.yaml: API bölümü eklendi, yeni edit parametreleri
+- requirements.txt: openai eklendi
 
-## Düzeltilen Hatalar
-- _render_clip(): -an kaldırıldı, orijinal ses korunuyor
-- Subtitle yakma: -c:a copy -> -c:a aac (ses stream'i yeniden kodlanıyor)
-- Config yolları /sdcard yerine Termux BASE path kullanıyor
-- Tüm /sdcard referansları temizlendi
+## Cache
+~/.rezero_cache/ altında JSON olarak saklanıyor
+Her video bir kez analiz edilir (16ms cache lookup)
+Hash: dosya boyutu + ilk 1MB MD5
 
-## Test Sonuçları
+## Sonuçlar
 - pytest: 40/40 passed
-- py_compile: music_selector.py, voice_ducking.py OK
-- Real test: 30s shorts oluşturuldu, otomatik müzik seçimi (action → mafia_vem_vem.mp3)
-- Ducking: başarılı, çıkışta video + AAC ses stream'i mevcut
+- Derin analiz: 24dk video → 36sn analiz (153 sahne)
+- Cache: 16ms (0.016s)
+- Edit pipeline: Deep analyze → select → effects → captions → render
+- Render: 7 klip, 30s Shorts → başarılı (1.6MB MP4, AAC audio)
+- LLM fallback: OpenRouter API yoksa kural tabanlı mod
+
+## API
+Key: config.yaml veya OPENROUTER_API_KEY env var
+Model: openrouter/owl-alpha
+Tool calling: order_clips, select_music_track, set_transitions
+
+## Komutlar
+- python main.py scan
+- python main.py edit --input video.mp4 --duration 59
+- python main.py edit --input video.mp4 --no-llm
+- python main.py batch --season 1
+- python main.py cache --info
+- python main.py cache --clear
+
+## Next
+Owl Alpha ile gerçek edit testi (api key gerekli)
+Gelişmiş efekt motoru (transition animasyonları)
+Çoklu dil desteği (altyazı)

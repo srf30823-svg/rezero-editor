@@ -1,4 +1,4 @@
-"""FFmpeg-based final render engine."""
+"""FFmpeg-based final render engine with Owl Alpha Director."""
 import subprocess
 import json
 import tempfile
@@ -7,8 +7,9 @@ import os
 from pathlib import Path
 from typing import Optional, Union
 
-from audio.music_selector import select_music, analyze_clips_mood
+from audio.music_selector import select_music, analyze_clips_mood, get_music_dir
 from audio.voice_ducking import apply_ducking
+from knowledge.owl_director import direct_edit_owl
 from rich.console import Console
 
 console = Console()
@@ -17,9 +18,12 @@ console = Console()
 def render_shorts(timeline: Union[dict, str], output_path: str,
                   music_path: Optional[str] = None,
                   subtitle_path: Optional[str] = None,
-                  preserve_dialogue: bool = True) -> str:
+                  preserve_dialogue: bool = True,
+                  use_llm: bool = True) -> str:
     """
     Build the final Shorts video from a timeline.
+
+    Owl Alpha Director reorders clips and selects music when use_llm=True.
 
     Args:
         timeline: Timeline dict or path to a timeline JSON file.
@@ -27,6 +31,7 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
         music_path: Optional background music file path.
         subtitle_path: Optional subtitle file path (SRT/ASS).
         preserve_dialogue: Keep original character voices audible.
+        use_llm: Use Owl Alpha LLM for edit decisions.
 
     Returns:
         Path to the rendered video.
@@ -47,6 +52,25 @@ def render_shorts(timeline: Union[dict, str], output_path: str,
     if not clips:
         raise ValueError("Timeline'de klip bulunamadı")
 
+    # ── Owl Alpha Director ──────────────────────────────────────────────
+    if use_llm:
+        music_dir = get_music_dir()
+        available_music = [f.name for f in Path(music_dir).rglob("*.mp3")] if music_dir.exists() else []
+
+        edit_plan = direct_edit_owl(clips, available_music)
+
+        ordered_ids = edit_plan.get("ordered_clip_ids", list(range(len(clips))))
+        clips = [clips[i] for i in ordered_ids if i < len(clips)]
+
+        if not music_path and edit_plan.get("music_track") and available_music:
+            for f in Path(music_dir).rglob("*.mp3"):
+                if f.name == edit_plan["music_track"]:
+                    music_path = str(f)
+                    break
+
+        console.print(f"[cyan]🦉 Owl Director: {edit_plan.get('reasoning', 'Edit planı oluşturuldu')}[/cyan]")
+
+    # ── Auto music selection ────────────────────────────────────────────
     if music_path is None:
         mood = analyze_clips_mood(clips)
         music_path = select_music(mood)
